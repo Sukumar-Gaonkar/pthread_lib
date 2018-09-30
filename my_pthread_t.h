@@ -16,16 +16,22 @@
 #include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <ucontext.h>
 
 typedef uint my_pthread_t;
 
 typedef struct threadControlBlock {
-	/* add something here */
+	uint tid;
+	tcb *next;
+	ucontext_t ucontext;
 } tcb; 
 
 /* mutex struct definition */
 typedef struct my_pthread_mutex_t {
-	/* add something here */
+	int lock;
+	int tid;
+	tcb *next;
+	int initialized;
 } my_pthread_mutex_t;
 
 /* define your data structures here: */
