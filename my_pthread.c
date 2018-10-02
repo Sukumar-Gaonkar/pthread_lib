@@ -129,6 +129,10 @@ int my_pthread_mutex_unlock(my_pthread_mutex_t *mutex)
 int my_pthread_mutex_destroy(my_pthread_mutex_t *mutex)
 {
 	assert(mutex != NULL);
+	if(mutex->lock==1){
+		printf("Mutex is locked by thread");
+		return 1;
+	}
 	free(mutex);
 	return 0;
 };
