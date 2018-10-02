@@ -17,13 +17,21 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <ucontext.h>
+#include <assert.h>
 
 #define MEM 1024
 
-typedef uint my_pthread_t;
+enum PROCESS_STATE{
+	RUNNING,WAIT
+};
+
+typedef struct my_pthread_t{
+	uint tid;
+	ucontext_t ucontext;
+}my_pthread_t;
 
 typedef struct threadControlBlock {
-	my_pthread_t tid;
+	uint tid;
 	tcb *next;
 	ucontext_t ucontext;
 } tcb; 
@@ -31,13 +39,19 @@ typedef struct threadControlBlock {
 /* mutex struct definition */
 typedef struct my_pthread_mutex_t {
 	int lock;
-	my_pthread_t tid;
+	uint tid;
 	tcb *next;
 	int initialized;
 } my_pthread_mutex_t;
 
 /* define your data structures here: */
 const int no_of_queues = 5;
+
+struct scheduler{
+	uint current_tid;
+	enum PROCESS_STATE state;
+
+};
 
 struct threadControlBlock *queue[no_of_queues];
 
