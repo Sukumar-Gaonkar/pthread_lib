@@ -26,7 +26,7 @@ typedef uint my_pthread_t;
 typedef struct threadControlBlock
 {
 	my_pthread_t tid;
-	tcb *next;
+	struct threadControlBlock *next;
 	ucontext_t ucontext;
 } tcb;
 
@@ -38,6 +38,20 @@ typedef struct my_pthread_mutex_t
 	tcb *next;
 	int initialized;
 } my_pthread_mutex_t;
+
+typedef struct tcb_queue{
+	tcb *start;
+	tcb *end;
+}tcb_queue;
+
+typedef struct my_scheduler_t
+{
+	int running_t_index;
+	tcb_queue *ready_queue;
+	tcb_queue *waiting_queue;
+//	int time_quanta = 25;
+
+}my_scheduler_t;
 
 /* define your data structures here: */
 const int no_of_queues = 5;

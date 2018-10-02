@@ -8,25 +8,45 @@
 
 #include "my_pthread_t.h"
 
-ucontext_t curr_context;
-static uint threadNo = 0;
 
-int pid_generator()
+#define USE_MY_PTHREAD 1	//(comment it if you want to use pthread)
+
+#ifdef USE_MY_PTHREAD
+#define pthread_t my_pthread_t
+#define pthread_mutex_t my_pthread_mutex_t
+#define pthread_create my_pthread_create
+#define pthread_exit my_pthread_exit
+#define pthread_join my_pthread_join
+#define pthread_mutex_init my_pthread_mutex_init
+#define pthread_mutex_lock my_pthread_mutex_lock
+#define pthread_mutex_unlock my_pthread_mutex_unlock
+#define pthread_mutex_destroy my_pthread_mutex_destroy
+#endif
+
+
+ucontext_t curr_context;
+static my_pthread_t threadNo = 0;
+
+my_scheduler_t schd;
+
+my_pthread_t tid_generator()
 {
 	return ++threadNo;
 }
-
-tcb *tcb_queue;
 
 /* create a new thread */
 int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr, void *(*function)(void *), void *arg)
 {
 	assert(thread != NULL);
 	getcontext(&curr_context);
-	thread = pid_generator();
+	thread = tid_generator();
 
 	curr_context.uc_link = 0;
 	curr_context.uc_stack.ss_sp = malloc(MEM);
+	if (curr_context.uc_stack.ss_sp == NULL){
+		printf("Memory Allocation Error!!!\n");
+		return 1;
+	}
 	curr_context.uc_stack.ss_size = MEM;
 	curr_context.uc_stack.ss_flags = 0;
 
@@ -35,18 +55,21 @@ int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr, void *(*functi
 	block.ucontext = curr_context;
 	block.next = NULL;
 
-	if (tcb_queue != NULL)
+	if (schd.ready_queue->start != NULL)
 	{
-		tcb_queue.next = block;
+		schd.ready_queue->end->next = &block;
+		schd.ready_queue->end = &block;
 	}
 	else
 	{
-		tcb_queue = block;
+
+		schd.ready_queue->start = &block;
+		schd.ready_queue->end = &block;
 	}
 
 	makecontext(&curr_context, &function, 0);
 
-	return thread;
+	return 0;
 };
 
 /* give CPU pocession to other user level threads voluntarily */
@@ -109,3 +132,23 @@ int my_pthread_mutex_destroy(my_pthread_mutex_t *mutex)
 	free(mutex);
 	return 0;
 };
+
+
+void pf(void *arg){
+	printf("%d : I Rock!!!\n",arg);
+}
+
+int main(int argc,int argv){
+	int thread_num = 5;
+	pthread_t *thread = (pthread_t*)malloc(thread_num*sizeof(pthread_t));
+	int i;
+	for (i = 0; i < thread_num; ++i)
+		pthread_create(&thread[i], NULL, &pf, &i);
+
+	tcb *tcb_holder = schd.ready_queue->start;
+	while(tcb_holder != NULL){
+		printf("%d,  ",tcb_holder->tid);
+	}
+
+}
+
