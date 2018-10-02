@@ -8,8 +8,7 @@
 
 #include "my_pthread_t.h"
 
-
-#define USE_MY_PTHREAD 1	//(comment it if you want to use pthread)
+#define USE_MY_PTHREAD 1 //(comment it if you want to use pthread)
 
 #ifdef USE_MY_PTHREAD
 #define pthread_t my_pthread_t
@@ -22,7 +21,6 @@
 #define pthread_mutex_unlock my_pthread_mutex_unlock
 #define pthread_mutex_destroy my_pthread_mutex_destroy
 #endif
-
 
 ucontext_t curr_context;
 static my_pthread_t threadNo = 0;
@@ -43,7 +41,8 @@ int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr, void *(*functi
 
 	curr_context.uc_link = 0;
 	curr_context.uc_stack.ss_sp = malloc(MEM);
-	if (curr_context.uc_stack.ss_sp == NULL){
+	if (curr_context.uc_stack.ss_sp == NULL)
+	{
 		printf("Memory Allocation Error!!!\n");
 		return 1;
 	}
@@ -129,7 +128,8 @@ int my_pthread_mutex_unlock(my_pthread_mutex_t *mutex)
 int my_pthread_mutex_destroy(my_pthread_mutex_t *mutex)
 {
 	assert(mutex != NULL);
-	if(mutex->lock==1){
+	if (mutex->lock == 1)
+	{
 		printf("Mutex is locked by thread");
 		return 1;
 	}
@@ -137,35 +137,38 @@ int my_pthread_mutex_destroy(my_pthread_mutex_t *mutex)
 	return 0;
 };
 
-
-void pf(void *arg){
-	printf("%d : I Rock!!!\n",arg);
+void pf(void *arg)
+{
+	printf("%d : I Rock!!!\n", arg);
 }
 
-int main(int argc,int argv){
+int main(int argc, int argv)
+{
 	int thread_num = 5;
-	pthread_t *thread = (pthread_t*)malloc(thread_num*sizeof(pthread_t));
+	pthread_t *thread = (pthread_t *)malloc(thread_num * sizeof(pthread_t));
 	int i;
 	for (i = 0; i < thread_num; ++i)
 		pthread_create(&thread[i], NULL, &pf, &i);
 
 	tcb *tcb_holder = schd.ready_queue->start;
-	while(tcb_holder != NULL){
-		printf("%d,  ",tcb_holder->tid);
+	while (tcb_holder != NULL)
+	{
+		printf("%d,  ", tcb_holder->tid);
 	}
-
 }
 
 /**
 * Implementing queue functions
 **/
 
-typedef struct QNodeType{
+typedef struct QNodeType
+{
 	tcb singletcb;
 	QNodeType *next;
 } QNode;
 
-void enqueue(tcb_queue *queue, tcb *singletcb){
+void enqueue(tcb_queue *queue, tcb *singletcb)
+{
 
 	QNode *temp;
 
@@ -173,26 +176,34 @@ void enqueue(tcb_queue *queue, tcb *singletcb){
 	temp->singletcb = singletcb;
 	temp->next = NULL;
 
-	if (queue->size == 0 || queue->start == NULL){
+	if (queue->size == 0 || queue->start == NULL)
+	{
 		queue->start = temp;
 		queue->end = temp;
-	} else {
+	}
+	else
+	{
 		queue->end->next = temp;
 		queue->end = temp;
 	}
 }
 
-void dequeue(tcb_queue *queue){
-	
+void dequeue(tcb_queue *queue)
+{
+
 	QNode *temp;
 
-	if (queue->start == NULL){
-		return NULL;
+	if (queue->start == NULL)
+	{
+		printf("Nothing in queue to dequeue");
 	}
-	if (queue->start->next == NULL){
+	if (queue->start->next == NULL)
+	{
 		queue->start = NULL;
-		queueu->end = NULL;
-	} else{
+		queue->end = NULL;
+	}
+	else
+	{
 		temp = queue->start;
 		queue->start = queue->start->next;
 		free(temp);
