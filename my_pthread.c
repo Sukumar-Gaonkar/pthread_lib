@@ -8,9 +8,26 @@
 
 #include "my_pthread_t.h"
 
+ucontext_t curr_context;
+
+void init_queue(){
+	*queue = malloc(no_of_queues * sizeof(struct threadControlBlock *));
+	for(int i=0;i<no_of_queues;i++){
+		queue[i] = malloc(sizeof(struct threadControlBlock));
+		queue[i] -> tid = 0;
+		queue[i] -> next = NULL;
+	}
+}
+
 /* create a new thread */
 int my_pthread_create(my_pthread_t * thread, pthread_attr_t * attr, void *(*function)(void*), void * arg) {
-	return 0;
+	getcontext(&curr_context);
+	curr_context.uc_link=0;
+	curr_context.uc_stack.ss_sp=malloc(MEM);
+	curr_context.uc_stack.ss_size=MEM;
+	curr_context.uc_stack.ss_flags=0;
+	makecontext(&curr_context, &function, 0);
+	return thread;
 };
 
 /* give CPU pocession to other user level threads voluntarily */

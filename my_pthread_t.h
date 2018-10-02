@@ -18,10 +18,12 @@
 #include <stdlib.h>
 #include <ucontext.h>
 
+#define MEM 1024
+
 typedef uint my_pthread_t;
 
 typedef struct threadControlBlock {
-	uint tid;
+	my_pthread_t tid;
 	tcb *next;
 	ucontext_t ucontext;
 } tcb; 
@@ -29,13 +31,17 @@ typedef struct threadControlBlock {
 /* mutex struct definition */
 typedef struct my_pthread_mutex_t {
 	int lock;
-	int tid;
+	my_pthread_t tid;
 	tcb *next;
 	int initialized;
 } my_pthread_mutex_t;
 
 /* define your data structures here: */
+const int no_of_queues = 5;
 
+struct threadControlBlock *queue[no_of_queues];
+
+void init_queue();
 // Feel free to add your own auxiliary data structures
 
 
