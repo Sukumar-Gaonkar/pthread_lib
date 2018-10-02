@@ -4,7 +4,7 @@
 
 // name:
 // username of iLab:
-// iLab Server: 
+// iLab Server:
 #ifndef MY_PTHREAD_T_H
 #define MY_PTHREAD_T_H
 
@@ -21,25 +21,20 @@
 
 #define MEM 1024
 
-enum PROCESS_STATE{
-	RUNNING,WAIT
-};
+typedef uint my_pthread_t;
 
-typedef struct my_pthread_t{
-	uint tid;
-	ucontext_t ucontext;
-}my_pthread_t;
-
-typedef struct threadControlBlock {
-	uint tid;
+typedef struct threadControlBlock
+{
+	my_pthread_t tid;
 	tcb *next;
 	ucontext_t ucontext;
-} tcb; 
+} tcb;
 
 /* mutex struct definition */
-typedef struct my_pthread_mutex_t {
+typedef struct my_pthread_mutex_t
+{
 	int lock;
-	uint tid;
+	my_pthread_t tid;
 	tcb *next;
 	int initialized;
 } my_pthread_mutex_t;
@@ -47,22 +42,8 @@ typedef struct my_pthread_mutex_t {
 /* define your data structures here: */
 const int no_of_queues = 5;
 
-struct scheduler{
-	uint current_tid;
-	enum PROCESS_STATE state;
-
-};
-
-struct threadControlBlock *queue[no_of_queues];
-
-void init_queue();
-// Feel free to add your own auxiliary data structures
-
-
-/* Function Declarations: */
-
 /* create a new thread */
-int my_pthread_create(my_pthread_t * thread, pthread_attr_t * attr, void *(*function)(void*), void * arg);
+int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr, void *(*function)(void *), void *arg);
 
 /* give CPU pocession to other user level threads voluntarily */
 int my_pthread_yield();

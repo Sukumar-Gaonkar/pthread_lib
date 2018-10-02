@@ -8,52 +8,78 @@
 
 #include "my_pthread_t.h"
 
-ucontext_t curr_context, t;
-uint threadNo = 0;
+ucontext_t curr_context;
+static uint threadNo = 0;
 
-int pid_generator(){
+int pid_generator()
+{
 	return ++threadNo;
-} 
+}
+
+tcb *tcb_queue;
 
 /* create a new thread */
-int my_pthread_create(my_pthread_t *thread, pthread_attr_t * attr, void *(*function)(void*), void * arg) {
-	assert(thread!=NULL);
+int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr, void *(*function)(void *), void *arg)
+{
+	assert(thread != NULL);
 	getcontext(&curr_context);
-	thread -> ucontext = curr_context;
-	thread -> tid = pid_generator();
-	curr_context.uc_link=0;
-	curr_context.uc_stack.ss_sp=malloc(MEM);
-	curr_context.uc_stack.ss_size=MEM;
-	curr_context.uc_stack.ss_flags=0;
+	thread = pid_generator();
+
+	curr_context.uc_link = 0;
+	curr_context.uc_stack.ss_sp = malloc(MEM);
+	curr_context.uc_stack.ss_size = MEM;
+	curr_context.uc_stack.ss_flags = 0;
+
+	tcb block;
+	block.tid = thread;
+	block.ucontext = curr_context;
+	block.next = NULL;
+
+	if (tcb_queue != NULL)
+	{
+		tcb_queue.next = block;
+	}
+	else
+	{
+		tcb_queue = block;
+	}
+
 	makecontext(&curr_context, &function, 0);
-	return thread->tid;
+
+	return thread;
 };
 
 /* give CPU pocession to other user level threads voluntarily */
-int my_pthread_yield() {
+int my_pthread_yield()
+{
 	return 0;
 };
 
 /* terminate a thread */
-void my_pthread_exit(void *value_ptr) {
-};
+void my_pthread_exit(void *value_ptr){};
 
 /* wait for thread termination */
-int my_pthread_join(my_pthread_t thread, void **value_ptr) {
+int my_pthread_join(my_pthread_t thread, void **value_ptr)
+{
 	return 0;
 };
 
 /* initial the mutex lock */
-int my_pthread_mutex_init(my_pthread_mutex_t *mutex, const pthread_mutexattr_t *mutexattr) {
+int my_pthread_mutex_init(my_pthread_mutex_t *mutex, const pthread_mutexattr_t *mutexattr)
+{
 	return 0;
 };
 
 /* aquire the mutex lock */
-int my_pthread_mutex_lock(my_pthread_mutex_t *mutex) {
-	assert(mutex!=NULL);
-	if(mutex->lock==1){
+int my_pthread_mutex_lock(my_pthread_mutex_t *mutex)
+{
+	assert(mutex != NULL);
+	if (mutex->lock == 1)
+	{
 		return 0;
-	}else{
+	}
+	else
+	{
 		mutex->lock = 1;
 		mutex->tid = 0;
 	}
@@ -61,11 +87,15 @@ int my_pthread_mutex_lock(my_pthread_mutex_t *mutex) {
 };
 
 /* release the mutex lock */
-int my_pthread_mutex_unlock(my_pthread_mutex_t *mutex) {
-	assert(mutex!=NULL);
-	if(mutex->lock==0){
+int my_pthread_mutex_unlock(my_pthread_mutex_t *mutex)
+{
+	assert(mutex != NULL);
+	if (mutex->lock == 0)
+	{
 		return 1;
-	}else{
+	}
+	else
+	{
 		mutex->lock = 0;
 		mutex->tid = 0;
 	}
@@ -73,9 +103,9 @@ int my_pthread_mutex_unlock(my_pthread_mutex_t *mutex) {
 };
 
 /* destroy the mutex */
-int my_pthread_mutex_destroy(my_pthread_mutex_t *mutex) {
-	assert(mutex!=NULL);
+int my_pthread_mutex_destroy(my_pthread_mutex_t *mutex)
+{
+	assert(mutex != NULL);
 	free(mutex);
 	return 0;
 };
-
