@@ -152,3 +152,45 @@ int main(int argc,int argv){
 
 }
 
+/**
+* Implementing queue functions
+**/
+
+typedef struct QNodeType{
+	tcb singletcb;
+	QNodeType *next;
+} QNode;
+
+void enqueue(tcb_queue *queue, tcb *singletcb){
+
+	QNode *temp;
+
+	temp = (QNode *)malloc(sizeof(QNode));
+	temp->singletcb = singletcb;
+	temp->next = NULL;
+
+	if (queue->size == 0 || queue->start == NULL){
+		queue->start = temp;
+		queue->end = temp;
+	} else {
+		queue->end->next = temp;
+		queue->end = temp;
+	}
+}
+
+void dequeue(tcb_queue *queue){
+	
+	QNode *temp;
+
+	if (queue->start == NULL){
+		return NULL;
+	}
+	if (queue->start->next == NULL){
+		queue->start = NULL;
+		queueu->end = NULL;
+	} else{
+		temp = queue->start;
+		queue->start = queue->start->next;
+		free(temp);
+	}
+}
