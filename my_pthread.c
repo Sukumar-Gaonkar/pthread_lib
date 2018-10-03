@@ -22,7 +22,7 @@
 #define pthread_mutex_destroy my_pthread_mutex_destroy
 #endif
 
-ucontext_t curr_context;
+ucontext_t curr_context,t1;
 static my_pthread_t threadNo = 0;
 
 my_scheduler_t schd;
@@ -90,6 +90,23 @@ int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr, void *(*functi
 /* give CPU pocession to other user level threads voluntarily */
 int my_pthread_yield()
 {
+	assert(schd.ready_queue!=NULL);
+	assert(schd.waiting_queue!=NULL);
+	getcontext(&t1);
+	t1.uc_link = 0;
+	t1.uc_stack.ss_sp = malloc(MEM);
+	if (t1.uc_stack.ss_sp == NULL)
+	{
+		printf("Memory Allocation Error!!!\n");
+		return 1;
+	}
+	t1.uc_stack.ss_size = MEM;
+	t1.uc_stack.ss_flags = 0;
+
+	tcb *curr = schd.ready_queue->start;
+	
+	swapcontext(&curr_context,&t1);
+	
 	return 0;
 };
 
@@ -146,7 +163,7 @@ int my_pthread_mutex_destroy(my_pthread_mutex_t *mutex)
 	assert(mutex != NULL);
 	if (mutex->lock == 1)
 	{
-		printf("Mutex is locked by thread");
+		printf("Mutex is locked by thread %d",mutex->tid);
 		return 1;
 	}
 	free(mutex);
