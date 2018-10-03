@@ -14,10 +14,12 @@
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
+#include <sys/time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <ucontext.h>
 #include <assert.h>
+#include <signal.h>
 
 #define MEM 1024
 
@@ -49,6 +51,7 @@ typedef struct my_scheduler_t
 	int running_t_index;
 	tcb_queue *ready_queue;
 	tcb_queue *waiting_queue;
+	ucontext_t context;
 //	int time_quanta = 25;
 
 }my_scheduler_t;

@@ -26,6 +26,22 @@ ucontext_t curr_context;
 static my_pthread_t threadNo = 0;
 
 my_scheduler_t schd;
+struct itimerval timeslice;
+
+alarm(unsigned int sec){
+	timeslice.it_interval.tv_usec=0;
+	timeslice.it_interval.tv_sec=3;
+	setitimer(ITIMER_VIRTUAL, &timeslice, NULL);
+}
+
+void sigalarmhandler(int signal){
+	if(signal==SIGVTALRM)
+	{
+		timeslice.it_interval.tv_usec=0;
+		timeslice.it_interval.tv_sec=3;
+		setitimer(ITIMER_VIRTUAL, &timeslice, NULL);
+	}
+}
 
 my_pthread_t tid_generator()
 {
@@ -163,8 +179,8 @@ int main(int argc, int argv)
 
 typedef struct QNodeType
 {
-	tcb singletcb;
-	QNodeType *next;
+	tcb *singletcb;
+	struct QNodeType *next;
 } QNode;
 
 void enqueue(tcb_queue *queue, tcb *singletcb)
@@ -176,7 +192,7 @@ void enqueue(tcb_queue *queue, tcb *singletcb)
 	temp->singletcb = singletcb;
 	temp->next = NULL;
 
-	if (queue->size == 0 || queue->start == NULL)
+	if (queue->start == NULL)
 	{
 		queue->start = temp;
 		queue->end = temp;
