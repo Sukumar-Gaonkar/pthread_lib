@@ -20,8 +20,13 @@
 #include <ucontext.h>
 #include <assert.h>
 #include <signal.h>
+#include <errno.h>
 
 #define MEM 1024
+
+#define LEVELS 20
+#define TIME_QUANTUM 10000
+#define RUNNING_TIME 500
 
 typedef uint my_pthread_t;
 
@@ -30,6 +35,8 @@ typedef struct threadControlBlock
 	my_pthread_t tid;
 	struct threadControlBlock *next;
 	ucontext_t ucontext;
+	state state;
+	uint priority;
 } tcb;
 
 /* mutex struct definition */
@@ -41,20 +48,35 @@ typedef struct my_pthread_mutex_t
 	int initialized;
 } my_pthread_mutex_t;
 
-typedef struct tcb_queue{
+/*Pointers to the start and end of the queue*/
+typedef struct tcb_queue
+{
 	tcb *start;
 	tcb *end;
-}tcb_queue;
+} tcb_list;
 
+/*Scheduler defintion*/
 typedef struct my_scheduler_t
 {
-	int running_t_index;
-	tcb_queue *ready_queue;
-	tcb_queue *waiting_queue;
-	ucontext_t context;
-//	int time_quanta = 25;
+	tcb *running_thread;
+	tcb_list *waiting_queue;
+	tcb_list *priority_queue[LEVELS];
+	my_pthread_mutex_t *mutex;
+} my_scheduler;
 
-}my_scheduler_t;
+typedef enum state
+{
+	READY,
+	RUNNING,
+	WAITING,
+	TERMINATED,
+} state;
+
+typedef struct QNode
+{
+	tcb *singletcb;
+	struct QNode *next;
+} QNode;
 
 /* define your data structures here: */
 const int no_of_queues = 5;
