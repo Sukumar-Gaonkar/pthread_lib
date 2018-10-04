@@ -214,6 +214,9 @@ void dequeue(tcb_list *queue) {
 	} else {
 		temp = queue->start;
 		queue->start = queue->start->next;
+		if (queue->start == NULL) {
+			queue->end = NULL;
+		}
 		free(temp);
 	}
 }
