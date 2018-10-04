@@ -1,5 +1,5 @@
 // File:	my_pthread_t.h
-// Author:	Yujie REN
+// Author:	Amogh Kulkarni, Sukumar Gaonkar, Vatsal Parikh
 // Date:	09/23/2017
 
 // name:
@@ -30,8 +30,11 @@
 
 typedef uint my_pthread_t;
 
-typedef struct threadControlBlock
-{
+typedef enum state {
+	READY, RUNNING, WAITING, TERMINATED,
+} state;
+
+typedef struct threadControlBlock {
 	my_pthread_t tid;
 	struct threadControlBlock *next;
 	ucontext_t ucontext;
@@ -40,8 +43,7 @@ typedef struct threadControlBlock
 } tcb;
 
 /* mutex struct definition */
-typedef struct my_pthread_mutex_t
-{
+typedef struct my_pthread_mutex_t {
 	int lock;
 	my_pthread_t tid;
 	tcb *next;
@@ -49,40 +51,25 @@ typedef struct my_pthread_mutex_t
 } my_pthread_mutex_t;
 
 /*Pointers to the start and end of the queue*/
-typedef struct tcb_queue
-{
+typedef struct tcb_queue {
 	tcb *start;
 	tcb *end;
 } tcb_list;
 
 /*Scheduler defintion*/
-typedef struct my_scheduler_t
-{
+typedef struct my_scheduler_t {
 	tcb *running_thread;
 	tcb_list *waiting_queue;
 	tcb_list *priority_queue[LEVELS];
 	my_pthread_mutex_t *mutex;
 } my_scheduler;
 
-typedef enum state
-{
-	READY,
-	RUNNING,
-	WAITING,
-	TERMINATED,
-} state;
-
-typedef struct QNode
-{
-	tcb *singletcb;
-	struct QNode *next;
-} QNode;
-
 /* define your data structures here: */
 const int no_of_queues = 5;
 
 /* create a new thread */
-int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr, void *(*function)(void *), void *arg);
+int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr,
+		void *(*function)(void *), void *arg);
 
 /* give CPU pocession to other user level threads voluntarily */
 int my_pthread_yield();
@@ -94,7 +81,8 @@ void my_pthread_exit(void *value_ptr);
 int my_pthread_join(my_pthread_t thread, void **value_ptr);
 
 /* initial the mutex lock */
-int my_pthread_mutex_init(my_pthread_mutex_t *mutex, const pthread_mutexattr_t *mutexattr);
+int my_pthread_mutex_init(my_pthread_mutex_t *mutex,
+		const pthread_mutexattr_t *mutexattr);
 
 /* aquire the mutex lock */
 int my_pthread_mutex_lock(my_pthread_mutex_t *mutex);
