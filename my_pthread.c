@@ -25,29 +25,38 @@
 ucontext_t curr_context, main_context, t1, t2;
 static my_pthread_t threadNo = 0;
 
-my_scheduler scheduler;
+static my_scheduler scheduler;
 struct itimerval timeslice;
 
-/*alarm(unsigned int sec){
- timeslice.it_interval.tv_usec=0;
- timeslice.it_interval.tv_sec=3;
- setitimer(ITIMER_VIRTUAL, &timeslice, NULL);
- }*/
-
-void sigalarmhandler(int signal) {
-	if (signal == SIGVTALRM) {
-		timeslice.it_interval.tv_usec = 0;
-		timeslice.it_interval.tv_sec = 3;
-		setitimer(ITIMER_VIRTUAL, &timeslice, NULL);
-	}
+void signal_handler(int signal) {
+	my_pthread_yield();
 }
 
 my_pthread_t tid_generator() {
 	return ++threadNo;
 }
+
+void init_mutex(my_pthread_mutex_t *mutex) {
+	mutex = (my_pthread_mutex_t*) malloc(sizeof(my_pthread_mutex_t));
+	mutex->initialized = 0;
+	mutex->lock = 0;
+	mutex->next = NULL;
+	mutex->tid = 0;
+}
+
+void init_priority_queue(tcb_list *q[]) {
+	q = (tcb_list*) malloc(sizeof(tcb_list) * LEVELS);
+	for (int i = 0; i < LEVELS; i++) {
+		q[i] = init_queue();
+	}
+}
+
 void make_scheduler() {
 	scheduler.running_thread = NULL;
-
+	init_mutex(scheduler->mutex);
+	scheduler->waiting_queue = NULL;
+	init_priority_queue(scheduler->priority_queue);
+	signal(SIGVTALRM, &signal_handler);
 }
 
 /* create a new thread */
@@ -72,11 +81,12 @@ int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr,
 	block.ucontext = curr_context;
 	block.next = NULL;
 
+	make_scheduler();
+
 	if (scheduler.running_thread != NULL) {
 		scheduler.waiting_queue->end->next = &block;
 		scheduler.waiting_queue->end = &block;
 	} else {
-
 		scheduler.waiting_queue->start = &block;
 		scheduler.waiting_queue->end = &block;
 	}
@@ -85,7 +95,6 @@ int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr,
 
 	return 0;
 }
-;
 
 /* give CPU pocession to other user level threads voluntarily */
 int my_pthread_yield() {
@@ -105,27 +114,28 @@ int my_pthread_yield() {
 
 	swapcontext(&curr_context, &t1);
 
+	timeslice.it_value.tv_usec = TIME_QUANTUM;
+	timeslice.it_interval.tv_usec = 0;
+	timeslice.it_interval.tv_sec = 0;
+	setitimer(ITIMER_VIRTUAL, &timeslice, NULL);
+
 	return 0;
 }
-;
 
 /* terminate a thread */
 void my_pthread_exit(void *value_ptr) {
 }
-;
 
 /* wait for thread termination */
 int my_pthread_join(my_pthread_t thread, void **value_ptr) {
 	return 0;
 }
-;
 
 /* initial the mutex lock */
 int my_pthread_mutex_init(my_pthread_mutex_t *mutex,
 		const pthread_mutexattr_t *mutexattr) {
 	return 0;
 }
-;
 
 /* aquire the mutex lock */
 int my_pthread_mutex_lock(my_pthread_mutex_t *mutex) {
@@ -138,7 +148,6 @@ int my_pthread_mutex_lock(my_pthread_mutex_t *mutex) {
 	}
 	return 0;
 }
-;
 
 /* release the mutex lock */
 int my_pthread_mutex_unlock(my_pthread_mutex_t *mutex) {
@@ -151,7 +160,6 @@ int my_pthread_mutex_unlock(my_pthread_mutex_t *mutex) {
 	}
 	return 0;
 }
-;
 
 /* destroy the mutex */
 int my_pthread_mutex_destroy(my_pthread_mutex_t *mutex) {
@@ -163,17 +171,20 @@ int my_pthread_mutex_destroy(my_pthread_mutex_t *mutex) {
 	free(mutex);
 	return 0;
 }
-;
 
-void pf(void *arg) {
-	printf(": I Rock!!!\n");
+void reset_timer() {
+	timeslice.it_value.tv_sec = 0;
+	timeslice.it_value.tv_usec = TIME_QUANTUM;
+	timeslice.it_interval.tv_usec = 0;
+	timeslice.it_interval.tv_sec = 0;
+	setitimer(ITIMER_VIRTUAL, &timeslice, NULL);
 }
 
 /**
  * Implementing queue functions
  **/
 
-tcb_list* init_queue( t) {
+tcb_list* init_queue() {
 	tcb_list *queue = (tcb_list*) malloc(sizeof(tcb_list));
 	queue->start = (tcb*) malloc(sizeof(tcb));
 	if (queue->start == NULL) {
@@ -232,23 +243,6 @@ tcb* getTcb(ucontext_t t, int id) {
 }
 
 int main(int argc, char **argv) {
-	getcontext(&main_context);
-	tcb *temp = getTcb(main_context, 1);
-	tcb *t2 = getTcb(main_context, 2);
-	tcb_list *q = init_queue();
-	enqueue(q, temp);
-	enqueue(q, t2);
-	tcb *s = q->start;
-	while (s != NULL) {
-		printf("Value in queue %d\n", s->tid);
-		s = s->next;
-	}
-	dequeue(q);
-	printf("After dequeue\n");
-	s = q->start;
-	while (s != NULL) {
-		printf("Value in queue %d\n", s->tid);
-		s = s->next;
-	}
+
 	return 0;
 }
