@@ -8,7 +8,7 @@
 
 #include "my_pthread_t.h"
 
-#define USE_MY_PTHREAD 1 //(comment it if you want to use pthread)
+#define USE_MY_PTHREAD 1
 
 #ifdef USE_MY_PTHREAD
 #define pthread_t my_pthread_t
@@ -22,26 +22,24 @@
 #define pthread_mutex_destroy my_pthread_mutex_destroy
 #endif
 
-ucontext_t curr_context, main_context, t1, t2;
+ucontext_t schd_context, main_context, curr_context;
 static my_pthread_t threadNo = 0;
+static int SYS_MODE = 0;
+static int init = 1;
+static int NO_OF_MUTEX = 3;
 
 static my_scheduler scheduler;
 struct itimerval timeslice;
 
 void signal_handler(int signal) {
+	if (SYS_MODE == 1) {
+
+	}
 	my_pthread_yield();
 }
 
 my_pthread_t tid_generator() {
 	return ++threadNo;
-}
-
-void init_mutex(my_pthread_mutex_t *mutex) {
-	mutex = (my_pthread_mutex_t*) malloc(sizeof(my_pthread_mutex_t));
-	mutex->initialized = 0;
-	mutex->lock = 0;
-	mutex->next = NULL;
-	mutex->tid = 0;
 }
 
 void init_priority_queue(tcb_list *q[]) {
@@ -52,10 +50,32 @@ void init_priority_queue(tcb_list *q[]) {
 }
 
 void make_scheduler() {
+	//Create context for the scheduler thread
+	getcontext(&schd_context);
+	schd_context.uc_link = 0;
+	schd_context.uc_stack.ss_sp = malloc(MEM);
+	if (schd_context.uc_stack.ss_sp == NULL) {
+		printf("Memory Allocation Error!!!\n");
+		return;
+	}
+	schd_context.uc_stack.ss_size = MEM;
+	schd_context.uc_stack.ss_flags = 0;
+
 	scheduler.running_thread = NULL;
-	init_mutex(scheduler->mutex);
-	scheduler->waiting_queue = NULL;
+
+	//Intitialize the list of mutexes needed for the scheduler.
+	my_pthread_mutex_init(scheduler->mutex);
+
+	//Initialize the waiting and the priority queue
+	scheduler->waiting_queue = init_queue();
 	init_priority_queue(scheduler->priority_queue);
+
+	//Initialize the timer and sig alarm
+	timeslice.it_value.tv_usec = TIME_QUANTUM;
+	timeslice.it_value.tv_sec = 0;
+	timeslice.it_interval.tv_usec = 0;
+	timeslice.it_interval.tv_sec = 0;
+	setitimer(ITIMER_VIRTUAL, &timeslice, NULL);
 	signal(SIGVTALRM, &signal_handler);
 }
 
@@ -63,56 +83,60 @@ void make_scheduler() {
 int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr,
 		void *(*function)(void *), void *arg) {
 
-	assert(thread != NULL);
-	getcontext(&curr_context);
+	if (init == 1) {
+		assert(thread != NULL);
+		getcontext(&main_context);
+		make_scheduler();
+		init = 0;
+	}
+
 	*thread = tid_generator();
 
-	curr_context.uc_link = 0;
-	curr_context.uc_stack.ss_sp = malloc(MEM);
-	if (curr_context.uc_stack.ss_sp == NULL) {
-		printf("Memory Allocation Error!!!\n");
-		return 1;
+	if (SYS_MODE == 1) {
+
+		getcontext(&curr_context);
+		curr_context.uc_link = 0;
+		curr_context.uc_stack.ss_sp = malloc(MEM);
+		if (curr_context.uc_stack.ss_sp == NULL) {
+			printf("Memory Allocation Error!!!\n");
+			return 1;
+		}
+		curr_context.uc_stack.ss_size = MEM;
+		curr_context.uc_stack.ss_flags = 0;
+
+		tcb block;
+		block.tid = *thread;
+		block.ucontext = curr_context;
+		block.next = NULL;
+		block.priority = 0;
+		block.state = READY;
+
+		if (scheduler.running_thread != NULL) {
+			scheduler.waiting_queue->end->next = &block;
+			scheduler.waiting_queue->end = &block;
+		} else {
+			scheduler.waiting_queue->start = &block;
+			scheduler.waiting_queue->end = &block;
+		}
+
+		makecontext(&curr_context, &function, 0);
+
 	}
-	curr_context.uc_stack.ss_size = MEM;
-	curr_context.uc_stack.ss_flags = 0;
-
-	tcb block;
-	block.tid = *thread;
-	block.ucontext = curr_context;
-	block.next = NULL;
-
-	make_scheduler();
-
-	if (scheduler.running_thread != NULL) {
-		scheduler.waiting_queue->end->next = &block;
-		scheduler.waiting_queue->end = &block;
-	} else {
-		scheduler.waiting_queue->start = &block;
-		scheduler.waiting_queue->end = &block;
-	}
-
-	makecontext(&curr_context, &function, 0);
 
 	return 0;
 }
 
 /* give CPU pocession to other user level threads voluntarily */
 int my_pthread_yield() {
-	//assert(schd.ready_queue!=NULL);
+
 	assert(scheduler.waiting_queue!=NULL);
-	getcontext(&t1);
-	t1.uc_link = 0;
-	t1.uc_stack.ss_sp = malloc(MEM);
-	if (t1.uc_stack.ss_sp == NULL) {
-		printf("Memory Allocation Error!!!\n");
-		return 1;
-	}
-	t1.uc_stack.ss_size = MEM;
-	t1.uc_stack.ss_flags = 0;
+	SYS_MODE = 1;
+	getcontext(&curr_context);
 
-	tcb *curr = scheduler.waiting_queue;
+	tcb *wait_q = scheduler.waiting_queue;
 
-	swapcontext(&curr_context, &t1);
+	dequeue(scheduler.waiting_queue);
+	swapcontext(&curr_context, wait_q->ucontext);
 
 	timeslice.it_value.tv_usec = TIME_QUANTUM;
 	timeslice.it_interval.tv_usec = 0;
@@ -124,6 +148,7 @@ int my_pthread_yield() {
 
 /* terminate a thread */
 void my_pthread_exit(void *value_ptr) {
+
 }
 
 /* wait for thread termination */
@@ -134,17 +159,46 @@ int my_pthread_join(my_pthread_t thread, void **value_ptr) {
 /* initial the mutex lock */
 int my_pthread_mutex_init(my_pthread_mutex_t *mutex,
 		const pthread_mutexattr_t *mutexattr) {
+
+	my_pthread_mutex_t prev = NULL;
+
+	for (int i = 0; i < NO_OF_MUTEX; i++) {
+		mutex = (my_pthread_mutex_t*) malloc(sizeof(my_pthread_mutex_t));
+		if (mutex == NULL) {
+			printf("Mutex initialization failed");
+			return 1;
+		}
+		mutex->initialized = 1;
+		mutex->lock = 0;
+		mutex->next = prev;
+		mutex->tid = 0;
+		prev = mutex;
+	}
+
 	return 0;
 }
 
 /* aquire the mutex lock */
 int my_pthread_mutex_lock(my_pthread_mutex_t *mutex) {
-	assert(mutex != NULL);
-	if (mutex->lock == 1) {
-		return 0;
-	} else {
-		mutex->lock = 1;
-		mutex->tid = 0;
+
+	my_pthread_mutex_t *temp = mutex;
+	assert(temp != NULL);
+
+	while (temp != NULL) {
+		if (temp->initialized == 1) {
+			if (temp->lock == 1
+					&& scheduler->running_thread->tid == temp->tid) {
+				printf("Lock is already held by thread %d", temp->tid);
+				break;
+			} else {
+				temp->lock = 1;
+				temp->tid = mutex->tid;
+			}
+		} else {
+			printf("Mutex not initialized");
+			return -1;
+		}
+		temp = temp->next;
 	}
 	return 0;
 }
@@ -218,6 +272,7 @@ void dequeue(tcb_list *queue) {
 
 	if (queue->start == NULL) {
 		printf("Nothing in queue to dequeue");
+		return;
 	}
 	if (queue->start->next == NULL) {
 		queue->start = NULL;
@@ -225,9 +280,6 @@ void dequeue(tcb_list *queue) {
 	} else {
 		temp = queue->start;
 		queue->start = queue->start->next;
-		if (queue->start == NULL) {
-			queue->end = NULL;
-		}
 		free(temp);
 	}
 }
