@@ -82,12 +82,17 @@ void dequeue(tcb_list *queue) {
 	}
 }
 
+/*
+ * Start of the scheduler code block
+ */
+
 tcb* getTcb(ucontext_t t, int id) {
-	tcb *temp = (tcb*) malloc(sizeof(tcb));
+	tcb *temp = malloc(sizeof(tcb));
 	temp->tid = id;
 	temp->priority = 1;
 	temp->state = READY;
 	temp->ucontext = t;
+	temp->timeExecuted = 0;
 	temp->next = NULL;
 	return temp;
 }
