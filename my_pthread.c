@@ -31,6 +31,67 @@ static int NO_OF_MUTEX = 3;
 static my_scheduler scheduler;
 struct itimerval timeslice;
 
+/**
+ * Implementing queue functions
+ **/
+
+void init_queue(tcb_list *queue) {
+
+	queue = malloc(sizeof(tcb_list));
+
+	queue->start = (tcb*) malloc(sizeof(tcb));
+	if (queue->start == NULL) {
+		printf("queue start initialization failed");
+	} else {
+		queue->start = NULL;
+	}
+	queue->end = (tcb*) malloc(sizeof(tcb));
+	if (queue->end == NULL) {
+		printf("queue end initialization failed");
+	} else {
+		queue->end = NULL;
+	}
+}
+
+void enqueue(tcb_list *queue, tcb *new_thread) {
+
+	if (queue->start == NULL) {
+		queue->start = new_thread;
+		queue->end = new_thread;
+	} else {
+		queue->end->next = new_thread;
+		queue->end = new_thread;
+	}
+}
+
+void dequeue(tcb_list *queue) {
+
+	tcb *temp;
+
+	if (queue->start == NULL) {
+		printf("Nothing in queue to dequeue");
+		return;
+	}
+	if (queue->start->next == NULL) {
+		queue->start = NULL;
+		queue->end = NULL;
+	} else {
+		temp = queue->start;
+		queue->start = queue->start->next;
+		free(temp);
+	}
+}
+
+tcb* getTcb(ucontext_t t, int id) {
+	tcb *temp = (tcb*) malloc(sizeof(tcb));
+	temp->tid = id;
+	temp->priority = 1;
+	temp->state = READY;
+	temp->ucontext = t;
+	temp->next = NULL;
+	return temp;
+}
+
 void signal_handler(int signal) {
 	if (SYS_MODE == 1) {
 
@@ -43,9 +104,10 @@ my_pthread_t tid_generator() {
 }
 
 void init_priority_queue(tcb_list *q[]) {
-	q = (tcb_list*) malloc(sizeof(tcb_list) * LEVELS);
-	for (int i = 0; i < LEVELS; i++) {
-		q[i] = init_queue();
+	q = malloc(sizeof(tcb_list) * LEVELS);
+	int i;
+	for (i = 0; i < LEVELS; i++) {
+		init_queue(q[i]);
 	}
 }
 
@@ -64,11 +126,11 @@ void make_scheduler() {
 	scheduler.running_thread = NULL;
 
 	//Intitialize the list of mutexes needed for the scheduler.
-	my_pthread_mutex_init(scheduler->mutex);
+	my_pthread_mutex_init(scheduler.mutex, NULL);
 
 	//Initialize the waiting and the priority queue
-	scheduler->waiting_queue = init_queue();
-	init_priority_queue(scheduler->priority_queue);
+	init_queue(scheduler.waiting_queue);
+	init_priority_queue(scheduler.priority_queue);
 
 	//Initialize the timer and sig alarm
 	timeslice.it_value.tv_usec = TIME_QUANTUM;
@@ -133,10 +195,10 @@ int my_pthread_yield() {
 	SYS_MODE = 1;
 	getcontext(&curr_context);
 
-	tcb *wait_q = scheduler.waiting_queue;
+	tcb_list *wait_q = (tcb_list*) scheduler.waiting_queue;
 
-	dequeue(scheduler.waiting_queue);
-	swapcontext(&curr_context, wait_q->ucontext);
+	dequeue(wait_q);
+	swapcontext(&curr_context, &(wait_q->start->ucontext));
 
 	timeslice.it_value.tv_usec = TIME_QUANTUM;
 	timeslice.it_interval.tv_usec = 0;
@@ -160,9 +222,9 @@ int my_pthread_join(my_pthread_t thread, void **value_ptr) {
 int my_pthread_mutex_init(my_pthread_mutex_t *mutex,
 		const pthread_mutexattr_t *mutexattr) {
 
-	my_pthread_mutex_t prev = NULL;
-
-	for (int i = 0; i < NO_OF_MUTEX; i++) {
+	my_pthread_mutex_t *prev = NULL;
+	int i;
+	for (i = 0; i < NO_OF_MUTEX; i++) {
 		mutex = (my_pthread_mutex_t*) malloc(sizeof(my_pthread_mutex_t));
 		if (mutex == NULL) {
 			printf("Mutex initialization failed");
@@ -186,8 +248,7 @@ int my_pthread_mutex_lock(my_pthread_mutex_t *mutex) {
 
 	while (temp != NULL) {
 		if (temp->initialized == 1) {
-			if (temp->lock == 1
-					&& scheduler->running_thread->tid == temp->tid) {
+			if (temp->lock == 1 && scheduler.running_thread->tid == temp->tid) {
 				printf("Lock is already held by thread %d", temp->tid);
 				break;
 			} else {
@@ -232,66 +293,6 @@ void reset_timer() {
 	timeslice.it_interval.tv_usec = 0;
 	timeslice.it_interval.tv_sec = 0;
 	setitimer(ITIMER_VIRTUAL, &timeslice, NULL);
-}
-
-/**
- * Implementing queue functions
- **/
-
-tcb_list* init_queue() {
-	tcb_list *queue = (tcb_list*) malloc(sizeof(tcb_list));
-	queue->start = (tcb*) malloc(sizeof(tcb));
-	if (queue->start == NULL) {
-		printf("queue start initialization failed");
-	} else {
-		queue->start = NULL;
-	}
-	queue->end = (tcb*) malloc(sizeof(tcb));
-	if (queue->end == NULL) {
-		printf("queue end initialization failed");
-	} else {
-		queue->end = NULL;
-	}
-	return queue;
-}
-
-void enqueue(tcb_list *queue, tcb *new_thread) {
-
-	if (queue->start == NULL) {
-		queue->start = new_thread;
-		queue->end = new_thread;
-	} else {
-		queue->end->next = new_thread;
-		queue->end = new_thread;
-	}
-}
-
-void dequeue(tcb_list *queue) {
-
-	tcb *temp;
-
-	if (queue->start == NULL) {
-		printf("Nothing in queue to dequeue");
-		return;
-	}
-	if (queue->start->next == NULL) {
-		queue->start = NULL;
-		queue->end = NULL;
-	} else {
-		temp = queue->start;
-		queue->start = queue->start->next;
-		free(temp);
-	}
-}
-
-tcb* getTcb(ucontext_t t, int id) {
-	tcb *temp = (tcb*) malloc(sizeof(tcb));
-	temp->tid = id;
-	temp->priority = 1;
-	temp->state = READY;
-	temp->ucontext = t;
-	temp->next = NULL;
-	return temp;
 }
 
 int main(int argc, char **argv) {
