@@ -283,24 +283,19 @@ int my_pthread_mutex_init(my_pthread_mutex_t *mutex,
 /* aquire the mutex lock */
 int my_pthread_mutex_lock(my_pthread_mutex_t *mutex) {
 
-	my_pthread_mutex_t *temp = mutex;
-	assert(temp != NULL);
+	assert(mutex != NULL);
 
-	while (temp != NULL) {
-		if (temp->initialized == 1) {
-			if (temp->lock == 1 && scheduler.running_thread->tid == temp->tid) {
-				printf("Lock is already held by thread %d", temp->tid);
-				break;
-			} else {
-				temp->lock = 1;
-				temp->tid = mutex->tid;
-			}
+	if (mutex->initialized == 1) {
+		if (mutex->lock == 1 && scheduler.running_thread->tid == mutex->tid) {
+			printf("Lock is already held by thread %d", mutex->tid);
 		} else {
-			printf("Mutex not initialized");
-			return -1;
+			mutex->lock = 1;
 		}
-		temp = temp->next;
+	} else {
+		printf("Mutex not initialized");
+		return -1;
 	}
+
 	return 0;
 }
 
