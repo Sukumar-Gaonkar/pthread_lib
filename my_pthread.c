@@ -22,11 +22,12 @@
 #define pthread_mutex_destroy my_pthread_mutex_destroy
 #endif
 
-ucontext_t schd_context, main_context, curr_context;
-static my_pthread_t threadNo = 0;
+tcb schd_t, main_t;
+ucontext_t curr_context;
+static my_pthread_t threadNo = 1;
 static int SYS_MODE = 0;
-static int init = 1;
-static int NO_OF_MUTEX = 3;
+static int init = 0, timer_hit = 0;
+static int NO_OF_MUTEX = 0;
 
 static my_scheduler scheduler;
 struct itimerval timeslice;
@@ -58,6 +59,7 @@ void enqueue(tcb_list *queue, tcb *new_thread) {
 	if (queue->start == NULL) {
 		queue->start = new_thread;
 		queue->end = new_thread;
+
 	} else {
 		queue->end->next = new_thread;
 		queue->end = new_thread;
@@ -99,9 +101,11 @@ tcb* getTcb(ucontext_t t, int id) {
 
 void signal_handler(int signal) {
 	if (SYS_MODE == 1) {
-
+		timer_hit = 1;
+		return;
+	} else {
+		my_pthread_yield();
 	}
-	my_pthread_yield();
 }
 
 my_pthread_t tid_generator() {
@@ -116,48 +120,80 @@ void init_priority_queue(tcb_list *q[]) {
 	}
 }
 
-void make_scheduler() {
-	//Create context for the scheduler thread
-	getcontext(&schd_context);
-	schd_context.uc_link = 0;
-	schd_context.uc_stack.ss_sp = malloc(MEM);
-	if (schd_context.uc_stack.ss_sp == NULL) {
-		printf("Memory Allocation Error!!!\n");
-		return;
-	}
-	schd_context.uc_stack.ss_size = MEM;
-	schd_context.uc_stack.ss_flags = 0;
-
-	scheduler.running_thread = NULL;
-
-	//Intitialize the list of mutexes needed for the scheduler.
-	my_pthread_mutex_init(scheduler.mutex, NULL);
-
-	//Initialize the waiting and the priority queue
-	init_queue(scheduler.waiting_queue);
-	init_priority_queue(scheduler.priority_queue);
-
-	//Initialize the timer and sig alarm
+void reset_timer() {
 	timeslice.it_value.tv_usec = TIME_QUANTUM;
 	timeslice.it_value.tv_sec = 0;
 	timeslice.it_interval.tv_usec = 0;
 	timeslice.it_interval.tv_sec = 0;
 	setitimer(ITIMER_VIRTUAL, &timeslice, NULL);
-	signal(SIGVTALRM, &signal_handler);
+}
+
+void make_scheduler() {
+	//Create context for the scheduler thread
+	if (init == 0) {
+
+		getcontext(&main_t.ucontext);
+		main_t.state = RUNNING;
+		main_t.priority = 0;
+		main_t.tid = 0;
+		main_t.timeExecuted = 0;
+		main_t.waiting_queue = NULL;
+
+		getcontext(&schd_t.ucontext);
+		schd_t.state = READY;
+		schd_t.priority = 0;
+		schd_t.tid = 0;
+		schd_t.timeExecuted = 0;
+		schd_t.waiting_queue = NULL;
+
+		schd_t.ucontext.uc_link = 0;
+		schd_t.ucontext.uc_stack.ss_sp = malloc(MEM);
+		if (schd_t.ucontext.uc_stack.ss_sp == NULL) {
+			printf("Memory Allocation Error!!!\n");
+			return;
+		}
+		schd_t.ucontext.uc_stack.ss_size = MEM;
+		schd_t.ucontext.uc_stack.ss_flags = 0;
+
+		scheduler.running_thread = NULL;
+
+		//Intitialize the list of mutexes needed for the scheduler.
+		my_pthread_mutex_init(scheduler.mutex, NULL);
+
+		//Initialize the waiting and the priority queue
+		//init_queue(scheduler.waiting_queue);
+		init_priority_queue(scheduler.priority_queue);
+
+		enqueue(&scheduler.priority_queue[0], &main_t);
+		enqueue(&scheduler.priority_queue[0], &schd_t);
+
+		scheduler.running_thread = &main_t;
+
+		//Initialize the timer and sig alarm
+		timeslice.it_value.tv_usec = TIME_QUANTUM;
+		timeslice.it_value.tv_sec = 0;
+		timeslice.it_interval.tv_usec = 0;
+		timeslice.it_interval.tv_sec = 0;
+
+		setitimer(ITIMER_VIRTUAL, &timeslice, NULL);
+		signal(SIGVTALRM, &signal_handler);
+
+		init = 1;
+		my_pthread_yield();
+
+	}
+
 }
 
 /* create a new thread */
 int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr,
 		void *(*function)(void *), void *arg) {
 
-	if (init == 1) {
-		assert(thread != NULL);
-		getcontext(&main_context);
-		make_scheduler();
-		init = 0;
-	}
+	assert(thread != NULL);
 
 	*thread = tid_generator();
+
+	make_scheduler();
 
 	if (SYS_MODE == 1) {
 
@@ -171,23 +207,24 @@ int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr,
 		curr_context.uc_stack.ss_size = MEM;
 		curr_context.uc_stack.ss_flags = 0;
 
-		tcb block;
-		block.tid = *thread;
-		block.ucontext = curr_context;
-		block.next = NULL;
-		block.priority = 0;
-		block.state = READY;
+		tcb new_thread;
+		new_thread.tid = *thread;
+		new_thread.ucontext = curr_context;		//test this out
+		new_thread.next = NULL;
+		new_thread.priority = 0;
+		new_thread.state = READY;
 
-		if (scheduler.running_thread != NULL) {
-			scheduler.waiting_queue->end->next = &block;
-			scheduler.waiting_queue->end = &block;
-		} else {
-			scheduler.waiting_queue->start = &block;
-			scheduler.waiting_queue->end = &block;
-		}
+		enqueue(scheduler.priority_queue[0], &new_thread);
 
-		makecontext(&curr_context, &function, 0);
+		makecontext(&new_thread.ucontext, &function, 0);
 
+	}
+
+	SYS_MODE = 0;
+
+	if (timer_hit == 1) {
+		timer_hit = 0;
+		my_pthread_yield();
 	}
 
 	return 0;
@@ -196,30 +233,31 @@ int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr,
 /* give CPU pocession to other user level threads voluntarily */
 int my_pthread_yield() {
 
-	assert(scheduler.waiting_queue!=NULL);
 	SYS_MODE = 1;
-	getcontext(&curr_context);
+	make_scheduler();
 
-	tcb_list *wait_q = (tcb_list*) scheduler.waiting_queue;
+	tcb *prev_thread = scheduler.running_thread;
 
-	dequeue(wait_q);
-	swapcontext(&curr_context, &(wait_q->start->ucontext));
-
-	timeslice.it_value.tv_usec = TIME_QUANTUM;
-	timeslice.it_interval.tv_usec = 0;
-	timeslice.it_interval.tv_sec = 0;
-	setitimer(ITIMER_VIRTUAL, &timeslice, NULL);
-
+	SYS_MODE = 0;
 	return 0;
 }
 
 /* terminate a thread */
 void my_pthread_exit(void *value_ptr) {
-
+	/*
+	 * Store return value in value_ptr
+	 * deallocate tcb
+	 * call scheduler for the next process
+	 */
+	make_scheduler();
 }
 
 /* wait for thread termination */
 int my_pthread_join(my_pthread_t thread, void **value_ptr) {
+	/*
+	 *
+	 */
+	make_scheduler();
 	return 0;
 }
 
@@ -227,21 +265,18 @@ int my_pthread_join(my_pthread_t thread, void **value_ptr) {
 int my_pthread_mutex_init(my_pthread_mutex_t *mutex,
 		const pthread_mutexattr_t *mutexattr) {
 
-	my_pthread_mutex_t *prev = NULL;
-	int i;
-	for (i = 0; i < NO_OF_MUTEX; i++) {
-		mutex = (my_pthread_mutex_t*) malloc(sizeof(my_pthread_mutex_t));
-		if (mutex == NULL) {
-			printf("Mutex initialization failed");
-			return 1;
-		}
-		mutex->initialized = 1;
-		mutex->lock = 0;
-		mutex->next = prev;
-		mutex->tid = 0;
-		prev = mutex;
-	}
+	SYS_MODE = 1;
 
+	if (mutex == NULL) {
+		printf("Mutex initialization failed");
+		return -1;
+	}
+	mutex->initialized = 1;
+	mutex->lock = 0;
+	NO_OF_MUTEX++;
+	mutex->tid = 0;
+
+	SYS_MODE = 0;
 	return 0;
 }
 
@@ -290,14 +325,6 @@ int my_pthread_mutex_destroy(my_pthread_mutex_t *mutex) {
 	}
 	free(mutex);
 	return 0;
-}
-
-void reset_timer() {
-	timeslice.it_value.tv_sec = 0;
-	timeslice.it_value.tv_usec = TIME_QUANTUM;
-	timeslice.it_interval.tv_usec = 0;
-	timeslice.it_interval.tv_sec = 0;
-	setitimer(ITIMER_VIRTUAL, &timeslice, NULL);
 }
 
 int main(int argc, char **argv) {

@@ -25,7 +25,7 @@
 #define MEM 1024
 
 #define LEVELS 20
-#define TIME_QUANTUM 10000
+#define TIME_QUANTUM 25
 #define RUNNING_TIME 500
 
 typedef uint my_pthread_t;
@@ -40,8 +40,15 @@ typedef struct threadControlBlock {
 	ucontext_t ucontext;
 	enum state state;
 	uint timeExecuted;
+	struct tcb_queue *waiting_queue;
 	uint priority;
 } tcb;
+
+/*Pointers to the start and end of the queue*/
+typedef struct tcb_queue {
+	tcb *start;
+	tcb *end;
+} tcb_list;
 
 /* mutex struct definition */
 typedef struct my_pthread_mutex_t {
@@ -51,19 +58,18 @@ typedef struct my_pthread_mutex_t {
 	int initialized;
 } my_pthread_mutex_t;
 
-/*Pointers to the start and end of the queue*/
-typedef struct tcb_queue {
-	tcb *start;
-	tcb *end;
-} tcb_list;
-
 /*Scheduler defintion*/
 typedef struct my_scheduler_t {
 	tcb *running_thread;
-	tcb_list *waiting_queue;
 	tcb_list *priority_queue[LEVELS];
 	my_pthread_mutex_t *mutex;
 } my_scheduler;
+
+typedef struct my_pthread_return_values {
+	my_pthread_t tid;
+	void *return_val;
+	struct my_pthread_return_values *next;
+} thread_ret_val;
 
 /* define your data structures here: */
 const int no_of_queues = 5;
