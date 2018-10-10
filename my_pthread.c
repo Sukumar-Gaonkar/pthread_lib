@@ -126,6 +126,7 @@ void reset_timer() {
 	timeslice.it_interval.tv_usec = 0;
 	timeslice.it_interval.tv_sec = 0;
 	setitimer(ITIMER_VIRTUAL, &timeslice, NULL);
+	SYS_MODE = 0;
 }
 
 void make_scheduler() {
@@ -137,14 +138,14 @@ void make_scheduler() {
 		main_t.priority = 0;
 		main_t.tid = 0;
 		main_t.timeExecuted = 0;
-		main_t.waiting_queue = NULL;
+		main_t.tcb_wait_queue = NULL;
 
 		getcontext(&schd_t.ucontext);
 		schd_t.state = READY;
 		schd_t.priority = 0;
 		schd_t.tid = 0;
 		schd_t.timeExecuted = 0;
-		schd_t.waiting_queue = NULL;
+		schd_t.tcb_wait_queue = NULL;
 
 		schd_t.ucontext.uc_link = 0;
 		schd_t.ucontext.uc_stack.ss_sp = malloc(MEM);
@@ -285,15 +286,52 @@ int my_pthread_mutex_lock(my_pthread_mutex_t *mutex) {
 
 	assert(mutex != NULL);
 
-	if (mutex->initialized == 1) {
-		if (mutex->lock == 1 && scheduler.running_thread->tid == mutex->tid) {
-			printf("Lock is already held by thread %d", mutex->tid);
-		} else {
-			mutex->lock = 1;
-		}
-	} else {
-		printf("Mutex not initialized");
+	if (mutex->initialized == 0) {
+		printf("Mutex not initialized, Cannot lock it.");
 		return -1;
+	}
+
+	tcb_list *wait_queue = mutex->m_wait_queue;
+	SYS_MODE = 1;
+
+	if (mutex->lock == 1) {
+
+		if (scheduler.running_thread->tid == mutex->tid) {
+			printf("Lock is already held by thread %d", mutex->tid);
+			return -1;
+		}
+
+		if (wait_queue == NULL) {
+
+			scheduler.running_thread->state = WAITING;
+			enqueue(wait_queue, scheduler.running_thread);
+
+			my_pthread_yield();
+
+			mutex->tid = scheduler.running_thread->tid;
+			scheduler.running_thread->state = RUNNING;
+			return 0;
+		}
+
+	}
+
+	if (mutex->lock == 0) {
+		if (mutex->m_wait_queue == NULL) {
+			mutex->lock = 1;
+			mutex->tid = scheduler.running_thread->tid;
+			reset_timer();
+			return 0;
+		} else {
+			enqueue(wait_queue, scheduler.running_thread);
+			scheduler.running_thread->state = WAITING;
+
+			my_pthread_yield();
+
+			mutex->tid = scheduler.running_thread->tid;
+			scheduler.running_thread->state = RUNNING;
+			return 0;
+		}
+
 	}
 
 	return 0;
@@ -302,12 +340,41 @@ int my_pthread_mutex_lock(my_pthread_mutex_t *mutex) {
 /* release the mutex lock */
 int my_pthread_mutex_unlock(my_pthread_mutex_t *mutex) {
 	assert(mutex != NULL);
-	if (mutex->lock == 0) {
-		return 1;
-	} else {
-		mutex->lock = 0;
-		mutex->tid = 0;
+
+	if (mutex->initialized == 0) {
+		printf("Mutex not initialized, Cannot unlock it.");
+		return -1;
 	}
+
+	if (mutex->lock == 0) {
+		printf("Mutex not locked, Cannot unlock it.");
+		return -1;
+	}
+
+	tcb_list *wait_queue = mutex->m_wait_queue;
+	SYS_MODE = 1;
+
+	if (mutex->lock == 1) {
+
+		if (scheduler.running_thread->tid == mutex->tid) {
+			printf("Lock is already held by thread %d", mutex->tid);
+			return -1;
+		}
+
+		if (wait_queue == NULL) {
+
+			scheduler.running_thread->state = WAITING;
+			enqueue(wait_queue, scheduler.running_thread);
+
+			my_pthread_yield();
+
+			mutex->tid = scheduler.running_thread->tid;
+			scheduler.running_thread->state = RUNNING;
+			return 0;
+		}
+
+	}
+
 	return 0;
 }
 

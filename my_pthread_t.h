@@ -40,7 +40,7 @@ typedef struct threadControlBlock {
 	ucontext_t ucontext;
 	enum state state;
 	uint timeExecuted;
-	struct tcb_queue *waiting_queue;
+	struct tcb_queue *tcb_wait_queue;
 	uint priority;
 } tcb;
 
@@ -55,6 +55,7 @@ typedef struct my_pthread_mutex_t {
 	int lock;
 	my_pthread_t tid;
 	struct my_pthread_mutex_t *next;
+	struct tcb_queue *m_wait_queue;
 	int initialized;
 } my_pthread_mutex_t;
 
