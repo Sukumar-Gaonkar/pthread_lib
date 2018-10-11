@@ -36,22 +36,10 @@ struct itimerval timeslice;
  * Implementing queue functions
  **/
 
-void init_queue(tcb_list *queue) {
+void init_queue(tcb_list **queue) {
 
-	queue = malloc(sizeof(tcb_list));
-
-	queue->start = (tcb*) malloc(sizeof(tcb));
-	if (queue->start == NULL) {
-		printf("queue start initialization failed");
-	} else {
-		queue->start = NULL;
-	}
-	queue->end = (tcb*) malloc(sizeof(tcb));
-	if (queue->end == NULL) {
-		printf("queue end initialization failed");
-	} else {
-		queue->end = NULL;
-	}
+	*queue = (tcb_list *) malloc(sizeof(tcb_list));
+	return;
 }
 
 void enqueue(tcb_list *queue, tcb *new_thread) {
@@ -113,10 +101,10 @@ my_pthread_t tid_generator() {
 }
 
 void init_priority_queue(tcb_list *q[]) {
-	q = malloc(sizeof(tcb_list) * LEVELS);
+	//q = malloc(sizeof(tcb_list) * LEVELS);
 	int i;
 	for (i = 0; i < LEVELS; i++) {
-		init_queue(q[i]);
+		init_queue(&(q[i]));
 	}
 }
 
@@ -165,8 +153,8 @@ void make_scheduler() {
 		//init_queue(scheduler.waiting_queue);
 		init_priority_queue(scheduler.priority_queue);
 
-		enqueue(&scheduler.priority_queue[0], &main_t);
-		enqueue(&scheduler.priority_queue[0], &schd_t);
+		enqueue(scheduler.priority_queue[0], &main_t);
+		enqueue(scheduler.priority_queue[0], &schd_t);
 
 		scheduler.running_thread = &main_t;
 
@@ -194,32 +182,30 @@ int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr,
 
 	*thread = tid_generator();
 
+	SYS_MODE = 1;
+
 	make_scheduler();
 
-	if (SYS_MODE == 1) {
-
-		getcontext(&curr_context);
-		curr_context.uc_link = 0;
-		curr_context.uc_stack.ss_sp = malloc(MEM);
-		if (curr_context.uc_stack.ss_sp == NULL) {
-			printf("Memory Allocation Error!!!\n");
-			return 1;
-		}
-		curr_context.uc_stack.ss_size = MEM;
-		curr_context.uc_stack.ss_flags = 0;
-
-		tcb new_thread;
-		new_thread.tid = *thread;
-		new_thread.ucontext = curr_context;		//test this out
-		new_thread.next = NULL;
-		new_thread.priority = 0;
-		new_thread.state = READY;
-
-		enqueue(scheduler.priority_queue[0], &new_thread);
-
-		makecontext(&new_thread.ucontext, &function, 0);
-
+	getcontext(&curr_context);
+	curr_context.uc_link = 0;
+	curr_context.uc_stack.ss_sp = malloc(MEM);
+	if (curr_context.uc_stack.ss_sp == NULL) {
+		printf("Memory Allocation Error!!!\n");
+		return 1;
 	}
+	curr_context.uc_stack.ss_size = MEM;
+	curr_context.uc_stack.ss_flags = 0;
+
+	tcb new_thread;
+	new_thread.tid = *thread;
+	new_thread.ucontext = curr_context;		//test this out
+	new_thread.next = NULL;
+	new_thread.priority = 0;
+	new_thread.state = READY;
+
+	enqueue(scheduler.priority_queue[0], &new_thread);
+
+	makecontext(&new_thread.ucontext, &function, 0);
 
 	SYS_MODE = 0;
 
@@ -389,7 +375,25 @@ int my_pthread_mutex_destroy(my_pthread_mutex_t *mutex) {
 	return 0;
 }
 
-int main(int argc, char **argv) {
+void * dummyFunction(void * arg){
+	printf("Running Thread: %d\n",*((int *)arg));
+	return arg;
+}
 
+int main(int argc, char **argv){
+	pthread_t t1, t2, t3;
+	int threadID = 1;
+	pthread_create(&t1, NULL, &dummyFunction, &threadID);
+	threadID++;
+	pthread_create(&t2, NULL, &dummyFunction, &threadID);
+	threadID++;
+	pthread_create(&t3, NULL, &dummyFunction, &threadID);
 	return 0;
 }
+
+
+
+
+
+
+
