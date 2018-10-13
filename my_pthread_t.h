@@ -22,6 +22,21 @@
 #include <signal.h>
 #include <errno.h>
 
+#define USE_MY_PTHREAD 1
+
+#ifdef USE_MY_PTHREAD
+#define pthread_t my_pthread_t
+#define pthread_mutex_t my_pthread_mutex_t
+#define pthread_create my_pthread_create
+#define pthread_exit my_pthread_exit
+#define pthread_join my_pthread_join
+#define pthread_yield my_pthread_yield
+#define pthread_mutex_init my_pthread_mutex_init
+#define pthread_mutex_lock my_pthread_mutex_lock
+#define pthread_mutex_unlock my_pthread_mutex_unlock
+#define pthread_mutex_destroy my_pthread_mutex_destroy
+#endif
+
 #define MEM 1024
 
 #define LEVELS 20
@@ -39,7 +54,8 @@ typedef struct threadControlBlock {
 	struct threadControlBlock *next;
 	ucontext_t ucontext;
 	enum state state;
-	uint timeExecuted;
+	uint run_count;
+	void *return_val;
 	struct tcb_queue *tcb_wait_queue;
 	uint priority;
 } tcb;
@@ -73,7 +89,7 @@ typedef struct my_pthread_return_values {
 } thread_ret_val;
 
 /* define your data structures here: */
-const int no_of_queues = 5;
+//const int no_of_queues = 5;
 
 /* create a new thread */
 int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr,
