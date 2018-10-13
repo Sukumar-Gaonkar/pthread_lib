@@ -25,7 +25,7 @@
 #define MEM 1024
 
 #define LEVELS 20
-#define TIME_QUANTUM 10
+#define TIME_QUANTUM 25
 #define RUNNING_TIME 500
 
 typedef uint my_pthread_t;
