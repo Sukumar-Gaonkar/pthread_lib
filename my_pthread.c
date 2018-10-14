@@ -298,10 +298,39 @@ void my_pthread_exit(void *value_ptr) {
 
 /* wait for thread termination */
 int my_pthread_join(my_pthread_t thread, void **value_ptr) {
-	/*
-	 *
-	 */
+
+	assert(thread != NULL);
+	SYS_MODE = 1;
 	make_scheduler();
+
+	if (thread == -1) {
+		printf("The thread has already joined and has been terminated");
+		return -1;
+	}
+
+	if (scheduler.running_thread->state != RUNNING) {
+		printf("The thread %d is not running", scheduler.running_thread->tid);
+		return -1;
+	}
+
+	if (scheduler.running_thread->tid == thread) {
+		printf("Thread %d cannot join itself", thread);
+		return -1;
+	}
+
+	printf("Thread %d joining thread %d", scheduler.running_thread->tid,
+			thread);
+
+	scheduler.running_thread->state = WAITING;
+	enqueue(scheduler.running_thread->tcb_wait_queue,
+			scheduler->running_thread);
+
+	my_pthread_yield();
+
+	if (value_ptr != NULL) {
+		*value_ptr = scheduler->running_thread->return_val;
+	}
+
 	return 0;
 }
 
@@ -460,13 +489,9 @@ int main(int argc, char **argv) {
 	int i = 0, j = 0, k = 0, l = 0;
 	for (i = 0; i < 100; i++) {
 		printf("Main: %d\n", i);
-//		int x = sleep(5);
-//		printf("Sleep op: %d\n", x);
 		for (j = 0; j < 50000; j++)
-//			for(k=0;k<1000000000;k++)
 			k++;
 	}
-//	sleep(5);
 
 	printf("Done\n");
 
@@ -601,11 +626,34 @@ int my_pthread_mutex_unlock(my_pthread_mutex_t *mutex) {
 /* destroy the mutex */
 int my_pthread_mutex_destroy(my_pthread_mutex_t *mutex) {
 	assert(mutex != NULL);
-	if (mutex->lock == 1) {
-		printf("Mutex is locked by thread %d", mutex->tid);
-		return 1;
+
+	SYS_MODE = 1;
+
+	if (mutex->initialized == 0) {
+		printf("Mutex is not initialized, cannot destroy");
+		//call the next thread
+		my_pthread_yield();
+		return -1;
 	}
-	free(mutex);
+
+	if (mutex->lock == 1&& mutex->tid == scheduler.running_thread->tid
+	&& mutex->m_wait_queue == NULL) {
+		SYS_MODE = 1;
+		printf("Mutex is held by the owner %d, can destroy", mutex->tid);
+		reset_timer();
+		SYS_MODE = 0;
+		return 0;
+	}
+
+	if (mutex->lock == 0 && mutex->tid == -1) {
+		SYS_MODE = 1;
+		printf("No one has the lock and no one is waiting for it, destroy...");
+		mutex->initialized = 0;
+		reset_timer();
+		SYS_MODE = 0;
+		return 0;
+	}
+
 	return 0;
 }
 
