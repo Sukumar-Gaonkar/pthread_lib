@@ -496,6 +496,25 @@ void dummyFunction(tcb *thread) {
 	return;
 }
 
+void maintenance_cycle(){
+
+//	tcb* temp;
+
+//	 if running_time = 50 run maintenance cycle
+
+//	 if run_count >= (LEVELS - priority), decrease priority, except for the last level
+//	 for (i = 0; i < LEVELS-1; i++){
+//		while (priority_queue[i]->tcb->start != NULL){
+//			if (priority_queue[i]->tcb->start->run_count >= (LEVELS - priority)){
+
+//				priority_queue[i]->tcb->start->priority -= 1;
+//				priority_queue[i]->tcb->start = priority_queue[i]->tcb->start.next;
+//			}
+//		}
+//	 }
+//
+}
+
 int main(int argc, char **argv) {
 	pthread_t t1, t2, t3;
 	pthread_create(&t1, NULL, (void *) dummyFunction, &t1);
