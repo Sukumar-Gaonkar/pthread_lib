@@ -23,7 +23,7 @@
 #define pthread_mutex_destroy my_pthread_mutex_destroy
 #endif
 
-tcb schd_t, main_t;
+tcb *schd_t, *main_t;
 ucontext_t curr_context;
 static my_pthread_t threadNo = 1;
 static int SYS_MODE = 0;
@@ -39,7 +39,6 @@ struct sigaction new_action;
  **/
 
 void init_queue(tcb_list **queue) {
-
 	*queue = (tcb_list *) malloc(sizeof(tcb_list));
 	return;
 }
@@ -67,6 +66,7 @@ void dequeue(tcb_list *queue) {
 	if (queue->start->next == NULL) {
 		queue->start = NULL;
 		queue->end = NULL;
+		free(queue->start);
 	} else {
 		temp = queue->start;
 		queue->start = queue->start->next;
@@ -118,50 +118,56 @@ void make_scheduler() {
 	//Create context for the scheduler thread
 	if (init == 0) {
 
-		if (getcontext(&main_t.ucontext) == -1) {
+		main_t = malloc(sizeof(tcb));
+
+		if (getcontext(&(main_t->ucontext)) == -1) {
 			printf("Error getting context!!!\n");
 			return;
 		}
-		main_t.state = RUNNING;
-		main_t.priority = 0;
-		main_t.tid = 0;
-		main_t.run_count = 0;
-		main_t.tcb_wait_queue = NULL;
+		main_t->state = RUNNING;
+		main_t->priority = 0;
+		main_t->tid = 0;
+		main_t->run_count = 0;
+		main_t->tcb_wait_queue = malloc(sizeof(tcb_list));
 
-		main_t.ucontext.uc_link = 0; //change this to maintenance cycle
-		main_t.ucontext.uc_stack.ss_sp = malloc(MEM);
-		if (main_t.ucontext.uc_stack.ss_sp == NULL) {
+		main_t->ucontext.uc_link = 0; //change this to maintenance cycle
+		main_t->ucontext.uc_stack.ss_sp = malloc(MEM);
+		if (main_t->ucontext.uc_stack.ss_sp == NULL) {
 			printf("Memory Allocation Error!!!\n");
 			return;
 		}
-		main_t.ucontext.uc_stack.ss_size = MEM;
-		main_t.ucontext.uc_stack.ss_flags = 0;
-		makecontext(&(main_t.ucontext), &signalTemp, 0);
+		main_t->ucontext.uc_stack.ss_size = MEM;
+		main_t->ucontext.uc_stack.ss_flags = 0;
+		makecontext(&(main_t->ucontext), &signalTemp, 0);
 
-		getcontext(&schd_t.ucontext);
-		schd_t.state = WAITING;	// Permanently WAITING. Ensures that the scheduler doesnt schedule itself.
-		schd_t.priority = 0;
-		schd_t.tid = 1;
-		schd_t.run_count = 0;
-		schd_t.tcb_wait_queue = NULL;
+		schd_t = malloc(sizeof(tcb));
+		if (getcontext(&schd_t->ucontext) == -1) {
+			printf("Error getting context!!!\n");
+			return;
+		}
+		schd_t->state = WAITING; // Permanently WAITING. Ensures that the scheduler doesnt schedule itself.
+		schd_t->priority = 0;
+		schd_t->tid = 1;
+		schd_t->run_count = 0;
+		schd_t->tcb_wait_queue = malloc(sizeof(tcb_list));
 
-		schd_t.ucontext.uc_link = 0;
-		schd_t.ucontext.uc_stack.ss_sp = malloc(MEM);
-		if (schd_t.ucontext.uc_stack.ss_sp == NULL) {
+		schd_t->ucontext.uc_link = 0;
+		schd_t->ucontext.uc_stack.ss_sp = malloc(MEM);
+		if (schd_t->ucontext.uc_stack.ss_sp == NULL) {
 			printf("Memory Allocation Error!!!\n");
 			return;
 		}
-		schd_t.ucontext.uc_stack.ss_size = MEM;
-		schd_t.ucontext.uc_stack.ss_flags = 0;
+		schd_t->ucontext.uc_stack.ss_size = MEM;
+		schd_t->ucontext.uc_stack.ss_flags = 0;
 
 		scheduler.running_thread = NULL;
 
 		init_priority_queue(scheduler.priority_queue);
 
-		enqueue(scheduler.priority_queue[0], &main_t);
+		enqueue(scheduler.priority_queue[0], main_t);
 //		enqueue(scheduler.priority_queue[0], &schd_t);
 
-		scheduler.running_thread = &main_t;
+		scheduler.running_thread = main_t;
 
 		//Initialize the timer and sig alarm
 		new_action.sa_handler = signal_handler;
@@ -189,7 +195,7 @@ int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr,
 	make_scheduler();
 
 	getcontext(&curr_context);
-	curr_context.uc_link = &(schd_t.ucontext);
+	curr_context.uc_link = &(schd_t->ucontext);
 	curr_context.uc_stack.ss_sp = malloc(MEM);
 	if (curr_context.uc_stack.ss_sp == NULL) {
 		printf("Memory Allocation Error!!!\n");
@@ -248,8 +254,9 @@ int my_pthread_yield() {
 	reset_timer();
 	assert(receiverContext != NULL);
 	assert(nextContext != NULL);
-	if (swapcontext(receiverContext, nextContext) != 0)
-		printf("Swapcontext Failed\n");
+	if (swapcontext(receiverContext, nextContext) == -1) {
+		printf("Swapcontext Failed %d %s\n", errno, strerror(errno));
+	}
 	return 0;
 }
 
@@ -471,16 +478,21 @@ int my_pthread_mutex_destroy(my_pthread_mutex_t *mutex) {
 	return 0;
 }
 
-void dummyFunction(tcb * thread) {
-	int curr_threadID = thread->tid;
-	printf("Entered Thread: %d\n", curr_threadID);
+void dummyFunction(tcb *thread) {
+
+	tcb *end = scheduler.priority_queue[0]->end;
+	my_pthread_t curr_threadID = thread->tid;
+	printf("Entered Thread %i\n", curr_threadID);
+	scheduler.priority_queue[0]->end = end;
 	int i = 0, j = 0, k = 0, l = 0;
 	for (i = 0; i < 100; i++) {
-		printf("Thread %d: %d\n", curr_threadID, i);
+		printf("Thread %d: %i\n", curr_threadID, i);
+		scheduler.priority_queue[0]->end = end;
 		for (j = 0; j < 50000; j++)
 			k++;
 	}
-	printf("Exited Thread: %d\n", curr_threadID);
+	printf("Exited Thread: %i\n", curr_threadID);
+	scheduler.priority_queue[0]->end = end;
 	return;
 }
 
@@ -495,7 +507,6 @@ int main(int argc, char **argv) {
 		printf("Main: %d\n", i);
 
 		for (j = 0; j < 50000; j++)
-
 			k++;
 	}
 
