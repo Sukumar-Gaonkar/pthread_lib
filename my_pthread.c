@@ -24,7 +24,7 @@
 #endif
 
 tcb *schd_t, *main_t;
-ucontext_t curr_context;
+ucontext_t curr_context, exit_thread_context;
 static my_pthread_t threadNo = 1;
 static int SYS_MODE = 0;
 static int init = 0, timer_hit = 0;
@@ -140,6 +140,13 @@ void make_scheduler() {
 		main_t->ucontext.uc_stack.ss_flags = 0;
 		makecontext(&(main_t->ucontext), &signalTemp, 0);
 
+		//Create
+		exit_thread_context.uc_link = 0;
+		exit_thread_context.uc_stack.ss_sp = malloc(MEM);
+		exit_thread_context.uc_stack.ss_size = MEM;
+		exit_thread_context.uc_stack.ss_flags = 0;
+		makecontext(&(exit_thread_context), &my_pthread_exit, 0);
+
 		schd_t = malloc(sizeof(tcb));
 		if (getcontext(&schd_t->ucontext) == -1) {
 			printf("Error getting context!!!\n");
@@ -195,7 +202,7 @@ int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr,
 	make_scheduler();
 
 	getcontext(&curr_context);
-	curr_context.uc_link = &(schd_t->ucontext);
+	curr_context.uc_link = &(exit_thread_context);
 	curr_context.uc_stack.ss_sp = malloc(MEM);
 	if (curr_context.uc_stack.ss_sp == NULL) {
 		printf("Memory Allocation Error!!!\n");
@@ -226,11 +233,113 @@ int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr,
 	return 0;
 }
 
+//void scheduling_decisions(void *arg){
+//
+//
+//	SYS_MODE = 1;
+//	make_scheduler();
+//
+//	// TODO: Something is wrong, we have to switch to schedulers context
+//
+//	tcb *prev_thread = scheduler.running_thread;
+//	prev_thread->state = READY;
+//
+//	if (scheduler.running_thread->next != NULL)
+//		scheduler.running_thread = scheduler.running_thread->next;
+//	else
+//		scheduler.running_thread = scheduler.priority_queue[0]->start;
+//
+//	while (scheduler.running_thread->state != READY) {
+//		scheduler.running_thread = scheduler.running_thread->next;
+//	}
+//
+//	ucontext_t *receiverContext = &(prev_thread->ucontext);
+//	ucontext_t *nextContext = &(scheduler.running_thread->ucontext);
+//	printf("rec: %p   next: %p\n", receiverContext, nextContext);
+//
+//	SYS_MODE = 0;
+//	reset_timer();
+//	assert(receiverContext != NULL);
+//	assert(nextContext != NULL);
+//	if (swapcontext(receiverContext, nextContext) == -1) {
+//		printf("Swapcontext Failed %d %s\n", errno, strerror(errno));
+//	}
+//
+//	return;
+//}
+
+void schd_maintenence() {
+//	TODO: for loop for all levels
+	int priority_level = 0;
+
+	// Lower the priority, more the importance.
+
+	for (priority_level = 0; priority_level < LEVELS; priority_level++) {
+		tcb *trailing_pointer = scheduler.priority_queue[priority_level]->start;
+		tcb *curr_tcb = scheduler.priority_queue[priority_level]->start;
+		while (curr_tcb != NULL) {
+
+			if (curr_tcb->state == READY) {
+				if (priority_level != 0)
+					curr_tcb->priority--;// Aeging, priority of READY yet not in lower queue reduces.
+
+			} else if (curr_tcb->state
+					== WAITING&& curr_tcb->priority != MAX_PRIORITY) {
+				curr_tcb->priority++;
+			}
+
+			if (curr_tcb->priority > priority_level_threshold[priority_level]
+					&& priority_level != LEVELS - 1
+					&& (priority_level <= IMP_T_DEMOTION_THRESH
+							|| curr_tcb->tcb_wait_queue == NULL)) {
+				// Demotion
+				// The second part of the 'if condition' is to avoid priority inversion
+				//Here we restrict important threads from falling below IMP_T_DEMOTION_THRESH priority queue level
+				//Threads on which other threads are waiting and/or threads holding mutexes are important threads.
+
+				if (curr_tcb
+						== scheduler.priority_queue[priority_level]->start) {
+					scheduler.priority_queue[priority_level]->start =
+							curr_tcb->next;
+				} else {
+					trailing_pointer->next = curr_tcb->next;
+				}
+
+				curr_tcb->next = NULL;
+				enqueue(scheduler.priority_queue[priority_level + 1], curr_tcb);
+			} else if (curr_tcb->priority
+					< priority_level_threshold[priority_level - 1]
+					&& priority_level != 0) {
+				//Promotion
+				if (curr_tcb
+						== scheduler.priority_queue[priority_level]->start) {
+					scheduler.priority_queue[priority_level]->start =
+							curr_tcb->next;
+				} else {
+					trailing_pointer->next = curr_tcb->next;
+				}
+
+				curr_tcb->next = NULL;
+				enqueue(scheduler.priority_queue[priority_level - 1], curr_tcb);
+			}
+
+			if (curr_tcb != scheduler.priority_queue[priority_level]->start)
+				trailing_pointer = trailing_pointer->next;
+			curr_tcb = curr_tcb->next;
+		}
+	}
+
+}
+
 /* give CPU pocession to other user level threads voluntarily */
 int my_pthread_yield() {
 
 	SYS_MODE = 1;
 	make_scheduler();
+
+//	if (swapcontext(&(scheduler.running_thread->ucontext), &(schd_t->ucontext)) == -1) {
+//		printf("Swapcontext Failed %d %s\n", errno, strerror(errno));
+//	}
 
 	// TODO: Something is wrong, we have to switch to schedulers context
 
@@ -239,9 +348,11 @@ int my_pthread_yield() {
 
 	if (scheduler.running_thread->next != NULL)
 		scheduler.running_thread = scheduler.running_thread->next;
-	else
+	else{
+		// One round of priority queue completed
+		//		schd_maintenence();
 		scheduler.running_thread = scheduler.priority_queue[0]->start;
-
+	}
 	while (scheduler.running_thread->state != READY) {
 		scheduler.running_thread = scheduler.running_thread->next;
 	}
@@ -254,10 +365,26 @@ int my_pthread_yield() {
 	reset_timer();
 	assert(receiverContext != NULL);
 	assert(nextContext != NULL);
-	if (swapcontext(receiverContext, nextContext) == -1) {
+	if (swapcontext(receiverContext, nextContext) == -1)
 		printf("Swapcontext Failed %d %s\n", errno, strerror(errno));
-	}
+
 	return 0;
+}
+
+void free_queue(tcb_list *list) {
+
+	if (list->start == NULL)
+		return;
+	tcb *curr_tcb = list->start;
+	tcb *forward_pointer = curr_tcb->next;
+
+	while (curr_tcb != NULL) {
+		if (curr_tcb->tid != 0) {
+			free(curr_tcb);
+			curr_tcb = forward_pointer;
+			forward_pointer = forward_pointer->next;
+		}
+	}
 }
 
 /* terminate a thread */
@@ -284,6 +411,19 @@ void my_pthread_exit(void *value_ptr) {
 		enqueue(scheduler.priority_queue[0], start);
 		start = start->next;
 		dequeue(temp);
+	}
+
+	int priority_level = 0;
+	if (scheduler.running_thread->tid == 0) {
+		// Main thread exited, thus kill all children
+		printf("Main Thread exiting, Killing all other threads");
+		for (priority_level = 0;
+				priority_level < LEVELS
+						&& scheduler.priority_queue[priority_level]->start
+								!= NULL; priority_level++) {
+			free_queue(scheduler.priority_queue[priority_level]);
+		}
+		return;
 	}
 
 	scheduler.running_thread->state = TERMINATED;
@@ -495,25 +635,25 @@ void dummyFunction(tcb *thread) {
 	//scheduler.priority_queue[0]->end = end;
 	return;
 }
-
-void maintenance_cycle(){
-
-//	tcb* temp;
-
-//	 if running_time = 50 run maintenance cycle
-
-//	 if run_count >= (LEVELS - priority), decrease priority, except for the last level
-//	 for (i = 0; i < LEVELS-1; i++){
-//		while (priority_queue[i]->tcb->start != NULL){
-//			if (priority_queue[i]->tcb->start->run_count >= (LEVELS - priority)){
-
-//				priority_queue[i]->tcb->start->priority -= 1;
-//				priority_queue[i]->tcb->start = priority_queue[i]->tcb->start.next;
-//			}
-//		}
-//	 }
 //
-}
+//void maintenance_cycle(){
+//
+////	tcb* temp;
+//
+////	 if running_time = 50 run maintenance cycle
+//
+////	 if run_count >= (LEVELS - priority), decrease priority, except for the last level
+////	 for (i = 0; i < LEVELS-1; i++){
+////		while (priority_queue[i]->tcb->start != NULL){
+////			if (priority_queue[i]->tcb->start->run_count >= (LEVELS - priority)){
+//
+////				priority_queue[i]->tcb->start->priority -= 1;
+////				priority_queue[i]->tcb->start = priority_queue[i]->tcb->start.next;
+////			}
+////		}
+////	 }
+////
+//}
 
 int main(int argc, char **argv) {
 	pthread_t t1, t2, t3;

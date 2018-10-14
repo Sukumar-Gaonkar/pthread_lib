@@ -37,11 +37,17 @@
 #define pthread_mutex_destroy my_pthread_mutex_destroy
 #endif
 
-#define MEM 2048
+#define MEM 4096
 
-#define LEVELS 20
+#define LEVELS 5
 #define TIME_QUANTUM 25
 #define RUNNING_TIME 500
+#define MAX_PRIORITY 15
+// Important threads will not be demoted below this level.
+//Threads on which other threads are waiting and/or threads holding mutexes are important threads.
+#define IMP_T_DEMOTION_THRESH 2
+
+int priority_level_threshold[] = {2,4,6,8,10};
 
 typedef uint my_pthread_t;
 
