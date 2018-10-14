@@ -88,6 +88,20 @@ tcb* getTcb(ucontext_t t, int id) {
 	temp->next = NULL;
 	return temp;
 }
+#define USE_MY_PTHREAD 1
+
+#ifdef USE_MY_PTHREAD
+#define pthread_t my_pthread_t
+#define pthread_mutex_t my_pthread_mutex_t
+#define pthread_create my_pthread_create
+#define pthread_exit my_pthread_exit
+#define pthread_join my_pthread_join
+#define pthread_yield my_pthread_yield
+#define pthread_mutex_init my_pthread_mutex_init
+#define pthread_mutex_lock my_pthread_mutex_lock
+#define pthread_mutex_unlock my_pthread_mutex_unlock
+#define pthread_mutex_destroy my_pthread_mutex_destroy
+#endif
 
 void signal_handler(int signal) {
 	if (SYS_MODE == 1) {
@@ -117,11 +131,15 @@ void reset_timer() {
 	timeslice.it_interval.tv_sec = 0;
 
 //	signal(SIGVTALRM, signal_handler);
-	if(setitimer(ITIMER_VIRTUAL, &timeslice, NULL))
+	if (setitimer(ITIMER_VIRTUAL, &timeslice, NULL))
 		printf("Couldn't start the timer\n");
 	printf("resetTimer: %d\n", timeslice.it_value.tv_usec);
 
 //	SYS_MODE = 0;
+}
+
+void signalTemp() {
+	pthread_yield();
 }
 
 void make_scheduler() {
@@ -136,7 +154,7 @@ void make_scheduler() {
 		main_t.timeExecuted = 0;
 		main_t.tcb_wait_queue = NULL;
 
-		main_t.ucontext.uc_link = &(main_t.ucontext);
+		main_t.ucontext.uc_link = 0; //&(main_t.ucontext);
 		main_t.ucontext.uc_stack.ss_sp = malloc(MEM);
 		if (main_t.ucontext.uc_stack.ss_sp == NULL) {
 			printf("Memory Allocation Error!!!\n");
@@ -144,9 +162,10 @@ void make_scheduler() {
 		}
 		main_t.ucontext.uc_stack.ss_size = MEM;
 		main_t.ucontext.uc_stack.ss_flags = 0;
+		makecontext(&(main_t.ucontext), &signalTemp, 0);
 
 		getcontext(&schd_t.ucontext);
-		schd_t.state = WAITING;		// Permanently WAITING. Ensures that the scheduler doesnt schedule itself.
+		schd_t.state = WAITING;	// Permanently WAITING. Ensures that the scheduler doesnt schedule itself.
 		schd_t.priority = 0;
 		schd_t.tid = 1;
 		schd_t.timeExecuted = 0;
@@ -160,7 +179,8 @@ void make_scheduler() {
 		}
 		schd_t.ucontext.uc_stack.ss_size = MEM;
 		schd_t.ucontext.uc_stack.ss_flags = 0;
-		makecontext(&(schd_t.ucontext), pthread_yield, 0);
+//		makecontext(&(schd_t.ucontext), pthread_yield, 0);
+
 		scheduler.running_thread = NULL;
 
 		//Intitialize the list of mutexes needed for the scheduler.
@@ -171,7 +191,7 @@ void make_scheduler() {
 		init_priority_queue(scheduler.priority_queue);
 
 		enqueue(scheduler.priority_queue[0], &main_t);
-		enqueue(scheduler.priority_queue[0], &schd_t);
+//		enqueue(scheduler.priority_queue[0], &schd_t);
 
 		scheduler.running_thread = &main_t;
 
@@ -226,9 +246,8 @@ int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr,
 	new_thread->priority = 0;
 	new_thread->state = READY;
 
+	makecontext(&(new_thread->ucontext), (void *) function, 1, arg);
 	enqueue(scheduler.priority_queue[0], new_thread);
-
-	makecontext(&(new_thread->ucontext), (void *)function, 1, arg);
 //	makecontext
 
 	SYS_MODE = 0;
@@ -251,27 +270,26 @@ int my_pthread_yield() {
 
 	tcb *prev_thread = scheduler.running_thread;
 	prev_thread->state = READY;
-	if (getcontext(&(prev_thread->ucontext)) == -1)
-			printf("Fail - getcontext - my_pthread_yield\n");
 
-	if(scheduler.running_thread->next != NULL)
+	if (scheduler.running_thread->next != NULL)
 		scheduler.running_thread = scheduler.running_thread->next;
 	else
 		scheduler.running_thread = scheduler.priority_queue[0]->start;
 
-	while(scheduler.running_thread->state != READY){
-			scheduler.running_thread = scheduler.running_thread->next;
+	while (scheduler.running_thread->state != READY) {
+		scheduler.running_thread = scheduler.running_thread->next;
 	}
 
-	if (scheduler.running_thread == NULL){
-		printf("Completed Execution!!!!\n");
-		return 0;
-	}
+	ucontext_t *receiverContext = &(prev_thread->ucontext);
+	ucontext_t *nextContext = &(scheduler.running_thread->ucontext);
+	printf("rec: %p   next: %p\n", receiverContext, nextContext);
 
 	SYS_MODE = 0;
-//	printf("Swapcontext: %d\n", swapcontext(&(scheduler.running_thread->ucontext), &(prev_thread->ucontext)));
 	reset_timer();
-	setcontext(&(scheduler.running_thread->ucontext));
+	assert(receiverContext != NULL);
+	assert(nextContext != NULL);
+	if (swapcontext(receiverContext, nextContext) != 0)
+		printf("Swapcontext Failed\n");
 	return 0;
 }
 
@@ -422,39 +440,39 @@ int my_pthread_mutex_destroy(my_pthread_mutex_t *mutex) {
 	return 0;
 }
 
-void dummyFunction(tcb * thread){
-	printf("Entered Thread: %d\n", thread->tid);
-	int i = 0, j=0, k=0, l=0;
-	for(i=0;i<100;i++){
-		printf("Thread %d: %d\n", thread->tid, i);
-		for(j=0;j<50000;j++)
+void dummyFunction(tcb * thread) {
+	int curr_threadID = thread->tid;
+	printf("Entered Thread: %d\n", curr_threadID);
+	int i = 0, j = 0, k = 0, l = 0;
+	for (i = 0; i < 100; i++) {
+		printf("Thread %d: %d\n", curr_threadID, i);
+		for (j = 0; j < 50000; j++)
 //			for(k=0;k<1000000000;k++)
-				k++;
+			k++;
 	}
 //	sleep(5);
-	printf("Exited Thread: %d\n", thread->tid);
+	printf("Exited Thread: %d\n", curr_threadID);
 	return;
 }
 
+void print_queue(tcb_list *q){
 
+}
 
-int main(int argc, char **argv){
+int main(int argc, char **argv) {
 	pthread_t t1, t2, t3;
-	int threadID = 2;
-	pthread_create(&t1, NULL, (void *)dummyFunction, &t1);
-	threadID++;
-	pthread_create(&t2, NULL, (void *)dummyFunction, &t2);
-	threadID++;
-	pthread_create(&t3, NULL, (void *)dummyFunction, &t3);
+	pthread_create(&t1, NULL, (void *) dummyFunction, &t1);
+	pthread_create(&t2, NULL, (void *) dummyFunction, &t2);
+	//pthread_create(&t3, NULL, (void *) dummyFunction, &t3);
 
-	int i = 0, j=0, k=0, l=0;
-	for(i=0;i<100;i++){
-		printf("Main: %d\n",i);
+	int i = 0, j = 0, k = 0, l = 0;
+	for (i = 0; i < 100; i++) {
+		printf("Main: %d\n", i);
 //		int x = sleep(5);
 //		printf("Sleep op: %d\n", x);
-		for(j=0;j<50000;j++)
+		for (j = 0; j < 50000; j++)
 //			for(k=0;k<1000000000;k++)
-				k++;
+			k++;
 	}
 //	sleep(5);
 
@@ -462,10 +480,4 @@ int main(int argc, char **argv){
 
 	return 0;
 }
-
-
-
-
-
-
 
