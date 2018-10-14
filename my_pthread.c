@@ -267,7 +267,7 @@ int my_pthread_yield() {
 void my_pthread_exit(void *value_ptr) {
 	/*
 	 * Store return value in value_ptr
-	 * deallocate tcb
+	 * deallocate wait queue
 	 * call scheduler for the next process
 	 */
 	make_scheduler();
