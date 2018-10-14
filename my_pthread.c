@@ -480,19 +480,19 @@ int my_pthread_mutex_destroy(my_pthread_mutex_t *mutex) {
 
 void dummyFunction(tcb *thread) {
 
-	tcb *end = scheduler.priority_queue[0]->end;
+	//tcb *end = scheduler.priority_queue[0]->end;
 	my_pthread_t curr_threadID = thread->tid;
 	printf("Entered Thread %i\n", curr_threadID);
-	scheduler.priority_queue[0]->end = end;
+	//scheduler.priority_queue[0]->end = end;
 	int i = 0, j = 0, k = 0, l = 0;
 	for (i = 0; i < 100; i++) {
 		printf("Thread %d: %i\n", curr_threadID, i);
-		scheduler.priority_queue[0]->end = end;
+		//scheduler.priority_queue[0]->end = end;
 		for (j = 0; j < 50000; j++)
 			k++;
 	}
 	printf("Exited Thread: %i\n", curr_threadID);
-	scheduler.priority_queue[0]->end = end;
+	//scheduler.priority_queue[0]->end = end;
 	return;
 }
 
