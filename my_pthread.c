@@ -271,7 +271,7 @@ int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr,
 void schd_maintenence() {
 //	TODO: for loop for all levels
 	int priority_level = 0;
-
+	printf("Maintenence Cycle\n");
 	// Lower the priority, more the importance.
 
 	for (priority_level = 0; priority_level < LEVELS; priority_level++) {
@@ -281,17 +281,19 @@ void schd_maintenence() {
 
 			if (curr_tcb->state == READY) {
 				if (priority_level != 0)
-					curr_tcb->priority--;// Aeging, priority of READY yet not in lower queue reduces.
+					curr_tcb->priority = curr_tcb->priority - 1;// Aeging, priority of READY yet not in lower queue reduces.
+//				else
+//					curr_tcb->priority = curr_tcb->priority + 1;
 
 			} else if (curr_tcb->state
-					== WAITING&& curr_tcb->priority != MAX_PRIORITY) {
+					== WAITING && curr_tcb->priority != MAX_PRIORITY) {
 				curr_tcb->priority++;
 			}
 
 			if (curr_tcb->priority > priority_level_threshold[priority_level]
-					&& priority_level != LEVELS - 1
+					&& priority_level < LEVELS - 1
 					&& (priority_level <= IMP_T_DEMOTION_THRESH
-							|| curr_tcb->tcb_wait_queue == NULL)) {
+							|| curr_tcb->tcb_wait_queue == NULL /*TODO: add mutex check*/)) {
 				// Demotion
 				// The second part of the 'if condition' is to avoid priority inversion
 				//Here we restrict important threads from falling below IMP_T_DEMOTION_THRESH priority queue level
@@ -305,8 +307,11 @@ void schd_maintenence() {
 					trailing_pointer->next = curr_tcb->next;
 				}
 
-				curr_tcb->next = NULL;
-				enqueue(scheduler.priority_queue[priority_level + 1], curr_tcb);
+//				curr_tcb->next = NULL;
+
+				tcb* to_add = curr_tcb;
+				curr_tcb = curr_tcb->next;
+				enqueue(scheduler.priority_queue[priority_level + 1], to_add);
 			} else if (curr_tcb->priority
 					< priority_level_threshold[priority_level - 1]
 					&& priority_level != 0) {
@@ -319,13 +324,17 @@ void schd_maintenence() {
 					trailing_pointer->next = curr_tcb->next;
 				}
 
-				curr_tcb->next = NULL;
-				enqueue(scheduler.priority_queue[priority_level - 1], curr_tcb);
+//				curr_tcb->next = NULL;
+				tcb* to_add = curr_tcb;
+				curr_tcb = curr_tcb->next;
+				enqueue(scheduler.priority_queue[priority_level - 1], to_add);
+			}else{
+				curr_tcb = curr_tcb->next;
 			}
 
 			if (curr_tcb != scheduler.priority_queue[priority_level]->start)
 				trailing_pointer = trailing_pointer->next;
-			curr_tcb = curr_tcb->next;
+
 		}
 	}
 
@@ -345,12 +354,18 @@ int my_pthread_yield() {
 
 	tcb *prev_thread = scheduler.running_thread;
 	prev_thread->state = READY;
+	prev_thread->priority = prev_thread->priority + 1;
 
-	if (scheduler.running_thread->next != NULL)
+	if (scheduler.running_thread->next != NULL){
 		scheduler.running_thread = scheduler.running_thread->next;
-	else{
+	}else{
 		// One round of priority queue completed
-		//		schd_maintenence();
+		schd_maintenence();
+		while (scheduler.priority_queue[0]->start == NULL){
+			// If nothing is there is there in the first queue
+			// Call Maintenance cycle until process from lower queues eventually promote to first queue
+			schd_maintenence();
+		}
 		scheduler.running_thread = scheduler.priority_queue[0]->start;
 	}
 	while (scheduler.running_thread->state != READY) {
