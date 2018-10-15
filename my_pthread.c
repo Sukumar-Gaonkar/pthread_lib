@@ -53,6 +53,7 @@ void enqueue(tcb_list *queue, tcb *new_thread) {
 	} else {
 		queue->end->next = new_thread;
 		queue->end = new_thread;
+		queue->end->next = NULL;
 	}
 }
 
@@ -225,7 +226,9 @@ int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr,
 	new_thread->ucontext = curr_context;		//test this out
 	new_thread->next = NULL;
 	new_thread->priority = 0;
+	new_thread->recently_demoted = 0;
 	new_thread->state = READY;
+	new_thread->tcb_wait_queue = (tcb_list *) malloc(sizeof(tcb_list));
 
 	makecontext(&(new_thread->ucontext), (void *) function, 1, arg);
 	enqueue(scheduler.priority_queue[0], new_thread);
@@ -286,18 +289,20 @@ void schd_maintenence() {
 		tcb *trailing_pointer = scheduler.priority_queue[priority_level]->start;
 		tcb *curr_tcb = scheduler.priority_queue[priority_level]->start;
 		while (curr_tcb != NULL) {
+			if(!curr_tcb->recently_demoted){
+				if (curr_tcb->state == READY) {
+					if (priority_level != 0)
+						curr_tcb->priority = curr_tcb->priority - 1;// Aeging, priority of READY yet not in lower queue reduces.
+	//				else
+	//					curr_tcb->priority = curr_tcb->priority + 1;
 
-			if (curr_tcb->state == READY) {
-				if (priority_level != 0)
-					curr_tcb->priority = curr_tcb->priority - 1;// Aeging, priority of READY yet not in lower queue reduces.
-//				else
-//					curr_tcb->priority = curr_tcb->priority + 1;
-
-			} else if (curr_tcb->state
-					== WAITING && curr_tcb->priority != MAX_PRIORITY) {
-				curr_tcb->priority++;
+				} else if (curr_tcb->state
+						== WAITING && curr_tcb->priority != MAX_PRIORITY) {
+					curr_tcb->priority = curr_tcb->priority + 1;
+				}
+			}else{
+				curr_tcb->recently_demoted = 0;
 			}
-
 			if (curr_tcb->priority > priority_level_threshold[priority_level]
 					&& priority_level < LEVELS - 1
 					&& (priority_level <= IMP_T_DEMOTION_THRESH
@@ -318,7 +323,9 @@ void schd_maintenence() {
 //				curr_tcb->next = NULL;
 
 				tcb* to_add = curr_tcb;
+				curr_tcb->recently_demoted = 1;
 				curr_tcb = curr_tcb->next;
+
 				enqueue(scheduler.priority_queue[priority_level + 1], to_add);
 			} else if (curr_tcb->priority
 					< priority_level_threshold[priority_level - 1]
@@ -361,8 +368,11 @@ int my_pthread_yield() {
 	// TODO: Something is wrong, we have to switch to schedulers context
 
 	tcb *prev_thread = scheduler.running_thread;
-	prev_thread->state = READY;
-	prev_thread->priority = prev_thread->priority + 1;
+	if(prev_thread->state == RUNNING){
+		prev_thread->state = READY;
+		prev_thread->priority = prev_thread->priority + 1;
+	}
+
 
 	if (scheduler.running_thread->next != NULL){
 		scheduler.running_thread = scheduler.running_thread->next;
@@ -388,6 +398,7 @@ int my_pthread_yield() {
 	reset_timer();
 	assert(receiverContext != NULL);
 	assert(nextContext != NULL);
+	scheduler.running_thread->state = RUNNING;
 	if (swapcontext(receiverContext, nextContext) == -1)
 		printf("Swapcontext Failed %d %s\n", errno, strerror(errno));
 
@@ -455,12 +466,29 @@ void my_pthread_exit(void *value_ptr) {
 	my_pthread_yield();
 }
 
+tcb* get_tcb(my_pthread_t thread){
+
+	int level = 0;
+	for (level = 0; level < LEVELS; level++) {
+		tcb *trailing_pointer = scheduler.priority_queue[level]->start;
+		tcb *curr_tcb = scheduler.priority_queue[level]->start;
+		while (curr_tcb != NULL) {
+			if (curr_tcb->tid == thread){
+				return curr_tcb;
+			}
+			curr_tcb = curr_tcb->next;
+		}
+	}
+
+	return NULL;
+}
+
 /* wait for thread termination */
 int my_pthread_join(my_pthread_t thread, void **value_ptr) {
 
 	SYS_MODE = 1;
 	make_scheduler();
-
+	printf("Joining\n");
 	if (thread == -1) {
 		printf("The thread has already joined and has been terminated");
 		return -1;
@@ -479,10 +507,22 @@ int my_pthread_join(my_pthread_t thread, void **value_ptr) {
 	printf("Thread %d joining thread %d", scheduler.running_thread->tid,
 			thread);
 
-	scheduler.running_thread->state = WAITING;
-	enqueue(scheduler.running_thread->tcb_wait_queue, scheduler.running_thread);
 
-	my_pthread_yield();
+
+	tcb* t;
+	if( (t = get_tcb(thread)) == NULL){
+		printf("Given thread does not exist\n");
+		return -1;
+	}
+
+	if(t->state == TERMINATED){
+		*value_ptr = t->return_val;
+		return 0;
+	}else{
+		scheduler.running_thread->state = WAITING;
+		enqueue(t->tcb_wait_queue, scheduler.running_thread);
+		my_pthread_yield();
+	}
 
 	if (value_ptr != NULL) {
 		*value_ptr = scheduler.running_thread->return_val;
@@ -730,9 +770,13 @@ int main(int argc, char **argv) {
 	pthread_create(&t2, NULL, (void *) dummyFunction, &t2);
 	//pthread_create(&t3, NULL, (void *) dummyFunction, &t3);
 
+	void ** op_val;
 	int i = 0, j = 0, k = 0, l = 0;
 	for (i = 0; i < 100; i++) {
 		printf("Main: %d\n", i);
+		if (i == 21){
+			pthread_join(t1, op_val);
+		}
 
 		for (j = 0; j < 50000; j++)
 			k++;

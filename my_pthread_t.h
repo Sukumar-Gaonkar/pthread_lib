@@ -63,6 +63,7 @@ typedef struct threadControlBlock {
 	uint run_count;
 	void *return_val;
 	struct tcb_queue *tcb_wait_queue;
+	int recently_demoted;
 	uint priority;
 } tcb;
 
@@ -82,18 +83,19 @@ typedef struct my_pthread_mutex_t {
 	int initialized;
 } my_pthread_mutex_t;
 
-/*Scheduler defintion*/
-typedef struct my_scheduler_t {
-	tcb *running_thread;
-	tcb_list *priority_queue[LEVELS];
-	my_pthread_mutex_t *mutex_list;
-} my_scheduler;
-
 typedef struct my_pthread_return_values {
 	my_pthread_t tid;
 	void *return_val;
 	struct my_pthread_return_values *next;
 } thread_ret_val;
+
+/*Scheduler defintion*/
+typedef struct my_scheduler_t {
+	tcb *running_thread;
+	tcb_list *priority_queue[LEVELS];
+	my_pthread_mutex_t *mutex_list;
+	thread_ret_val ret_vals;
+} my_scheduler;
 
 /* define your data structures here: */
 //const int no_of_queues = 5;
