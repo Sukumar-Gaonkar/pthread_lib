@@ -26,6 +26,7 @@
 tcb *schd_t, *main_t;
 ucontext_t curr_context, exit_thread_context;
 static my_pthread_t threadNo = 1;
+static int mutex_id = 0;
 static int SYS_MODE = 0;
 static int init = 0, timer_hit = 0;
 static int NO_OF_MUTEX = 0;
@@ -90,6 +91,11 @@ void signal_handler(int signal) {
 my_pthread_t tid_generator() {
 	return ++threadNo;
 }
+
+int mutex_id_generator() {
+	return ++mutex_id;
+}
+
 
 void init_priority_queue(tcb_list *q[]) {
 	int i;
@@ -168,6 +174,8 @@ void make_scheduler() {
 		schd_t->ucontext.uc_stack.ss_flags = 0;
 
 		scheduler.running_thread = NULL;
+
+		scheduler.mutex_list = malloc(sizeof(my_pthread_mutex_t));
 
 		init_priority_queue(scheduler.priority_queue);
 
@@ -483,6 +491,48 @@ int my_pthread_join(my_pthread_t thread, void **value_ptr) {
 	return 0;
 }
 
+
+/*Keep track of Mutexes in the system*/
+int mutex_exists(my_pthread_mutex_t *mutex) {
+	my_pthread_mutex_t *temp = scheduler.mutex_list;
+	while (temp != NULL) {
+		if (temp->id == mutex->id) {
+			return 0;
+		}
+		temp = temp->next;
+	}
+	return -1;
+}
+
+void enqueue_mutex(my_pthread_mutex_t *queue, my_pthread_mutex_t *new_mutex) {
+
+	assert(queue!=NULL);
+
+	my_pthread_mutex_t *temp = queue;
+
+	while (temp->next != NULL) {
+		temp = temp->next;
+	}
+
+	temp->next = new_mutex;
+}
+
+void dequeue_mutex(my_pthread_mutex_t *queue) {
+
+	assert(queue!=NULL);
+	tcb *temp = queue;
+	tcb *prev = NULL;
+
+	if (temp->next != NULL) {
+		prev = temp;
+		temp = temp->next;
+	}
+
+	free(prev);
+	queue = temp;
+}
+
+
 /* initial the mutex lock */
 int my_pthread_mutex_init(my_pthread_mutex_t *mutex,
 		const pthread_mutexattr_t *mutexattr) {
@@ -497,7 +547,7 @@ int my_pthread_mutex_init(my_pthread_mutex_t *mutex,
 	mutex->lock = 0;
 	NO_OF_MUTEX++;
 	mutex->tid = 0;
-
+	enqueue_mutex(scheduler.mutex_list, mutex);
 	SYS_MODE = 0;
 	return 0;
 }
@@ -555,7 +605,7 @@ int my_pthread_mutex_lock(my_pthread_mutex_t *mutex) {
 
 	}
 
-	return 0;
+	return -1;
 }
 
 /* release the mutex lock */
@@ -577,26 +627,29 @@ int my_pthread_mutex_unlock(my_pthread_mutex_t *mutex) {
 
 	if (mutex->lock == 1) {
 
-		if (scheduler.running_thread->tid == mutex->tid) {
-			printf("Lock is already held by thread %d", mutex->tid);
+		if (scheduler.running_thread->tid != mutex->tid) {
+			printf("Lock owner is thread %d, cannot unlock it", mutex->tid);
 			return -1;
 		}
 
-		if (wait_queue == NULL) {
-
-			scheduler.running_thread->state = WAITING;
-			enqueue(wait_queue, scheduler.running_thread);
-
-			pthread_yield();
-
-			mutex->tid = scheduler.running_thread->tid;
-			scheduler.running_thread->state = RUNNING;
-			return 0;
+		if (scheduler.running_thread->tid == mutex->tid) {
+			if (wait_queue == NULL) {
+				mutex->lock = 0;
+				mutex->tid = -1;
+				my_pthread_yield();
+				return 0;
+			} else {
+				mutex->m_wait_queue->start->state = READY;
+				mutex->m_wait_queue->start = mutex->m_wait_queue->start->next;
+				mutex->tid = -1;
+				my_pthread_yield();
+				return 0;
+			}
 		}
 
 	}
 
-	return 0;
+	return -1;
 }
 
 /* destroy the mutex */
@@ -616,6 +669,7 @@ int my_pthread_mutex_destroy(my_pthread_mutex_t *mutex) {
 	&& mutex->m_wait_queue == NULL) {
 		SYS_MODE = 1;
 		printf("Mutex is held by the owner %d, can destroy", mutex->tid);
+		mutex->initialized = 0;
 		reset_timer();
 		SYS_MODE = 0;
 		return 0;

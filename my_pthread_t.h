@@ -74,6 +74,7 @@ typedef struct tcb_queue {
 
 /* mutex struct definition */
 typedef struct my_pthread_mutex_t {
+	int id;
 	int lock;
 	my_pthread_t tid;
 	struct my_pthread_mutex_t *next;
@@ -85,7 +86,7 @@ typedef struct my_pthread_mutex_t {
 typedef struct my_scheduler_t {
 	tcb *running_thread;
 	tcb_list *priority_queue[LEVELS];
-	my_pthread_mutex_t *mutex;
+	my_pthread_mutex_t *mutex_list;
 } my_scheduler;
 
 typedef struct my_pthread_return_values {
