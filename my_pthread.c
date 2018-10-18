@@ -24,7 +24,7 @@
 #endif
 
 tcb *schd_t, *main_t;
-ucontext_t curr_context, exit_thread_context;
+ucontext_t curr_context; /*exit_thread_context ;*/
 static my_pthread_t threadNo = 1;
 static int mutex_id = 0;
 static int SYS_MODE = 0;
@@ -53,26 +53,32 @@ void enqueue(tcb_list *queue, tcb *new_thread) {
 	} else {
 		queue->end->next = new_thread;
 		queue->end = new_thread;
-		queue->end->next = NULL;
 	}
+
+	new_thread->next = NULL;
 }
 
-void dequeue(tcb_list *queue) {
+tcb* dequeue(tcb_list *queue) {
 
 	tcb *temp;
 
 	if (queue->start == NULL) {
 		printf("Nothing in queue to dequeue");
-		return;
+		return NULL;
 	}
+
+	temp = queue->start->next;
 	if (queue->start->next == NULL) {
 		queue->start = NULL;
 		queue->end = NULL;
-		free(queue->start);
+		return temp;
+//		free(queue->start);
 	} else {
 		temp = queue->start;
 		queue->start = queue->start->next;
-		free(temp);
+		temp->next = NULL;
+		return temp;
+//		free(temp);
 	}
 }
 
@@ -147,12 +153,12 @@ void make_scheduler() {
 		main_t->ucontext.uc_stack.ss_flags = 0;
 		makecontext(&(main_t->ucontext), &signalTemp, 0);
 
-		//Create
-		exit_thread_context.uc_link = 0;
-		exit_thread_context.uc_stack.ss_sp = malloc(MEM);
-		exit_thread_context.uc_stack.ss_size = MEM;
-		exit_thread_context.uc_stack.ss_flags = 0;
-		makecontext(&(exit_thread_context), &my_pthread_exit, 0);
+//		//Create
+//		exit_thread_context.uc_link = 0;
+//		exit_thread_context.uc_stack.ss_sp = malloc(MEM);
+//		exit_thread_context.uc_stack.ss_size = MEM;
+//		exit_thread_context.uc_stack.ss_flags = 0;
+//		makecontext(&(exit_thread_context), &my_pthread_exit, 0);
 
 		schd_t = malloc(sizeof(tcb));
 		if (getcontext(&schd_t->ucontext) == -1) {
@@ -198,6 +204,11 @@ void make_scheduler() {
 
 }
 
+void wrapper_function(void *(*thread_function)(void *), void *arg){
+	void *ret_value = thread_function(arg);
+	pthread_exit(ret_value);
+}
+
 /* create a new thread */
 int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr,
 		void *(*function)(void *), void *arg) {
@@ -209,9 +220,9 @@ int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr,
 	SYS_MODE = 1;
 
 	make_scheduler();
-
+	ucontext_t curr_context;
 	getcontext(&curr_context);
-	curr_context.uc_link = &(exit_thread_context);
+	curr_context.uc_link = 0;
 	curr_context.uc_stack.ss_sp = malloc(MEM);
 	if (curr_context.uc_stack.ss_sp == NULL) {
 		printf("Memory Allocation Error!!!\n");
@@ -219,6 +230,10 @@ int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr,
 	}
 	curr_context.uc_stack.ss_size = MEM;
 	curr_context.uc_stack.ss_flags = 0;
+	makecontext(&(curr_context), &wrapper_function, 2, function, arg);
+
+//
+
 
 	// malloc ensure the tcb is created in heap and is not deallocated once the function returns.
 	tcb *new_thread = (tcb *) malloc(sizeof(tcb));
@@ -230,7 +245,7 @@ int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr,
 	new_thread->state = READY;
 	new_thread->tcb_wait_queue = (tcb_list *) malloc(sizeof(tcb_list));
 
-	makecontext(&(new_thread->ucontext), (void *) function, 1, arg);
+//	makecontext(&(new_thread->ucontext), (void *) function, 1, arg);
 	enqueue(scheduler.priority_queue[0], new_thread);
 
 	SYS_MODE = 0;
@@ -279,8 +294,13 @@ int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr,
 //	return;
 //}
 
+
+
+
 void schd_maintenence() {
 //	TODO: for loop for all levels
+	static int maintenence_count = 0;
+	maintenence_count++;
 	int priority_level = 0;
 	printf("Maintenence Cycle\n");
 	// Lower the priority, more the importance.
@@ -444,7 +464,8 @@ void my_pthread_exit(void *value_ptr) {
 		start->return_val = value_ptr;
 		enqueue(scheduler.priority_queue[0], start);
 		start = start->next;
-		dequeue(temp);
+		tcb* tcb_holder = dequeue(temp);
+		free(tcb_holder);
 	}
 
 	int priority_level = 0;
@@ -520,6 +541,7 @@ int my_pthread_join(my_pthread_t thread, void **value_ptr) {
 		return 0;
 	}else{
 		scheduler.running_thread->state = WAITING;
+
 		enqueue(t->tcb_wait_queue, scheduler.running_thread);
 		my_pthread_yield();
 	}
@@ -742,9 +764,9 @@ void dummyFunction(tcb *thread) {
 	}
 	printf("Exited Thread: %i\n", curr_threadID);
 	//scheduler.priority_queue[0]->end = end;
-	return;
+//	return;
 }
-//
+
 //void maintenance_cycle(){
 //
 ////	tcb* temp;
