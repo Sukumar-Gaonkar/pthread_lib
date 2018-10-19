@@ -60,27 +60,60 @@ void enqueue(tcb_list *queue, tcb *new_thread) {
 
 tcb* dequeue(tcb_list *queue) {
 
-	tcb *temp;
+	tcb *curr_tcb;
 
 	if (queue->start == NULL) {
 		printf("Nothing in queue to dequeue");
 		return NULL;
 	}
 
-	temp = queue->start->next;
-	if (queue->start->next == NULL) {
+	curr_tcb = queue->start;
+	if (curr_tcb->next == NULL) {
 		queue->start = NULL;
 		queue->end = NULL;
-		return temp;
-//		free(queue->start);
 	} else {
-		temp = queue->start;
 		queue->start = queue->start->next;
-		temp->next = NULL;
-		return temp;
-//		free(temp);
+		curr_tcb->next = NULL;
 	}
+
+	return curr_tcb;
 }
+
+void delete_from_queue(tcb_list *queue, tcb *todel_tcb){
+	if(todel_tcb == NULL){
+		printf("Deleting NULL tcb\n");
+		return;
+	}else if(queue->start == NULL){
+		printf("Deleting from empty Queue\n");
+	}else if(queue->start == todel_tcb){
+		queue->start = queue->start->next;
+		if(queue->start == NULL)
+			queue->end = NULL;
+		todel_tcb->next = NULL;
+	}
+
+	tcb *curr_tcb = queue->start;
+	tcb *trail_pointer = queue->start;
+
+	while(curr_tcb != todel_tcb && curr_tcb != NULL){
+		if(curr_tcb != queue->start){
+			trail_pointer = trail_pointer->next;
+		}
+		curr_tcb = curr_tcb->next;
+	}
+
+	if(curr_tcb == NULL){
+		printf("Given tcb not found in Queue\n");
+		return;
+	}else{
+		trail_pointer->next = curr_tcb->next;
+		curr_tcb->next = NULL;
+	}
+
+
+
+}
+
 
 /*
  * Start of the scheduler code block
@@ -295,8 +328,6 @@ int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr,
 //}
 
 
-
-
 void schd_maintenence() {
 //	TODO: for loop for all levels
 	static int maintenence_count = 0;
@@ -455,17 +486,14 @@ void my_pthread_exit(void *value_ptr) {
 		printf("Thread %d already terminated", scheduler.running_thread->tid);
 	}
 
-	tcb_list *temp = scheduler.running_thread->tcb_wait_queue;
-	tcb* start = temp->start;
+	tcb_list *wait_queue = scheduler.running_thread->tcb_wait_queue;
 
-	while (start != NULL) {
-		start->priority = 0;
-		start->state = READY;
-		start->return_val = value_ptr;
-		enqueue(scheduler.priority_queue[0], start);
-		start = start->next;
-		tcb* tcb_holder = dequeue(temp);
-		free(tcb_holder);
+	while (wait_queue->start != NULL) {
+		tcb* tcb_holder = dequeue(wait_queue);
+		tcb_holder ->priority = 0;
+		tcb_holder ->state = READY;
+
+		enqueue(scheduler.priority_queue[0], tcb_holder);
 	}
 
 	int priority_level = 0;
@@ -482,7 +510,8 @@ void my_pthread_exit(void *value_ptr) {
 	}
 
 	scheduler.running_thread->state = TERMINATED;
-	scheduler.running_thread->tid = -1;
+//	scheduler.running_thread->tid = 2;
+	scheduler.running_thread->return_val = value_ptr;
 
 	my_pthread_yield();
 }
@@ -541,13 +570,13 @@ int my_pthread_join(my_pthread_t thread, void **value_ptr) {
 		return 0;
 	}else{
 		scheduler.running_thread->state = WAITING;
-
+		delete_from_queue(scheduler.priority_queue[0], scheduler.running_thread);
 		enqueue(t->tcb_wait_queue, scheduler.running_thread);
 		my_pthread_yield();
 	}
 
 	if (value_ptr != NULL) {
-		*value_ptr = scheduler.running_thread->return_val;
+		value_ptr = t->return_val;
 	}
 
 	return 0;
@@ -749,7 +778,7 @@ int my_pthread_mutex_destroy(my_pthread_mutex_t *mutex) {
 	return 0;
 }
 
-void dummyFunction(tcb *thread) {
+void * dummyFunction(tcb *thread) {
 
 	//tcb *end = scheduler.priority_queue[0]->end;
 	my_pthread_t curr_threadID = thread->tid;
@@ -764,7 +793,7 @@ void dummyFunction(tcb *thread) {
 	}
 	printf("Exited Thread: %i\n", curr_threadID);
 	//scheduler.priority_queue[0]->end = end;
-//	return;
+	return &(thread->tid);
 }
 
 //void maintenance_cycle(){
