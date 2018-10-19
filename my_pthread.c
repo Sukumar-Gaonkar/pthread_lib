@@ -215,12 +215,11 @@ void make_scheduler() {
 
 		scheduler.running_thread = NULL;
 
-		scheduler.mutex_list = malloc(sizeof(my_pthread_mutex_t));
+		scheduler.mutex_list = NULL; //malloc(sizeof(my_pthread_mutex_t));
 
 		init_priority_queue(scheduler.priority_queue);
 
 		enqueue(scheduler.priority_queue[0], main_t);
-//		enqueue(scheduler.priority_queue[0], &schd_t);
 
 		scheduler.running_thread = main_t;
 
@@ -292,6 +291,23 @@ int my_pthread_create(my_pthread_t *thread, pthread_attr_t *attr,
 	return 0;
 }
 
+int holds_mutex(tcb *t){
+	my_pthread_mutex_t *curr_mutex = scheduler.mutex_list;
+	tcb*curr_tcb;
+	while(curr_mutex != NULL){
+		curr_tcb = curr_mutex->m_wait_queue->start;
+		while(curr_tcb != NULL){
+			if(curr_tcb->tid == t->tid){
+				return 1;
+			}
+			curr_tcb = curr_tcb->next;
+		}
+		curr_mutex = curr_mutex->next;
+	}
+
+	return 0;
+}
+
 //void scheduling_decisions(void *arg){
 //
 //
@@ -357,7 +373,7 @@ void schd_maintenence() {
 			if (curr_tcb->priority > priority_level_threshold[priority_level]
 					&& priority_level < LEVELS - 1
 					&& (priority_level <= IMP_T_DEMOTION_THRESH
-							|| curr_tcb->tcb_wait_queue == NULL /*TODO: add mutex check*/)) {
+							|| (curr_tcb->tcb_wait_queue == NULL && !holds_mutex(curr_tcb)))) {
 				// Demotion
 				// The second part of the 'if condition' is to avoid priority inversion
 				//Here we restrict important threads from falling below IMP_T_DEMOTION_THRESH priority queue level
@@ -422,10 +438,13 @@ int my_pthread_yield() {
 	if(prev_thread->state == RUNNING){
 		prev_thread->state = READY;
 		prev_thread->priority = prev_thread->priority + 1;
+	}else if(prev_thread->state == TERMINATED){
+		scheduler.running_thread = scheduler.running_thread->next;
+		delete_from_queue(scheduler.priority_queue[0], prev_thread);
 	}
 
 
-	if (scheduler.running_thread->next != NULL){
+	if (scheduler.running_thread != NULL && scheduler.running_thread->next != NULL){
 		scheduler.running_thread = scheduler.running_thread->next;
 	}else{
 		// One round of priority queue completed
@@ -638,6 +657,8 @@ int my_pthread_mutex_init(my_pthread_mutex_t *mutex,
 	mutex->lock = 0;
 	NO_OF_MUTEX++;
 	mutex->tid = 0;
+	mutex->m_wait_queue = (tcb_list *) malloc(sizeof(tcb_list));
+	init_queue(&(mutex->m_wait_queue));
 	enqueue_mutex(scheduler.mutex_list, mutex);
 	SYS_MODE = 0;
 	return 0;
