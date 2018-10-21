@@ -35,6 +35,8 @@ static my_scheduler scheduler;
 struct itimerval timeslice;
 struct sigaction new_action;
 
+my_pthread_mutex_t *temp_mutex;
+
 /**
  * Implementing queue functions
  **/
@@ -219,7 +221,7 @@ void make_scheduler() {
 
 		scheduler.running_thread = NULL;
 
-		scheduler.mutex_list = NULL; //malloc(sizeof(my_pthread_mutex_t));
+		scheduler.mutex_list = malloc(sizeof(my_pthread_mutex_t));
 
 		init_priority_queue(scheduler.priority_queue);
 
@@ -451,7 +453,18 @@ int my_pthread_yield() {
 	}else{
 		// One round of priority queue completed
 		schd_maintenence();
-		while (scheduler.priority_queue[0]->start == NULL){
+
+//		while (scheduler.priority_queue[0]->start == NULL){
+		int flag = 1;
+		while (flag){
+			tcb *temp_tcb = scheduler.priority_queue[0]->start;
+			while(temp_tcb != NULL){
+				if(temp_tcb->state == READY){
+					flag = 0;
+					break;
+				}
+				temp_tcb = temp_tcb->next;
+			}
 			// If nothing is there is there in the first queue
 			// Call Maintenance cycle until process from lower queues eventually promote to first queue
 			schd_maintenence();
@@ -530,6 +543,16 @@ void my_pthread_exit(void *value_ptr) {
 		return;
 	}
 
+	if(scheduler.mutex_list != NULL){
+		my_pthread_mutex_t *mutex_holder = scheduler.mutex_list;
+		while(mutex_holder != NULL){
+			if(mutex_holder->tid == scheduler.running_thread->tid){
+				my_pthread_mutex_unlock(mutex_holder);
+			}
+			mutex_holder = mutex_holder->next;
+		}
+	}
+
 	scheduler.running_thread->state = TERMINATED;
 //	scheduler.running_thread->tid = 2;
 	scheduler.running_thread->return_val = value_ptr;
@@ -541,13 +564,28 @@ tcb* get_tcb(my_pthread_t thread){
 
 	int level = 0;
 	for (level = 0; level < LEVELS; level++) {
-		tcb *trailing_pointer = scheduler.priority_queue[level]->start;
 		tcb *curr_tcb = scheduler.priority_queue[level]->start;
 		while (curr_tcb != NULL) {
 			if (curr_tcb->tid == thread){
 				return curr_tcb;
 			}
 			curr_tcb = curr_tcb->next;
+		}
+
+		if(scheduler.mutex_list != NULL){
+			my_pthread_mutex_t *mutex_holder = scheduler.mutex_list;
+			while(mutex_holder != NULL){
+				if(mutex_holder->m_wait_queue != NULL){
+					tcb *curr_tcb = mutex_holder->m_wait_queue->start;
+					while(curr_tcb != NULL){
+						if(curr_tcb->tid == thread){
+							return curr_tcb;
+						}
+						curr_tcb = curr_tcb->next;
+					}
+				}
+				mutex_holder = mutex_holder->next;
+			}
 		}
 	}
 
@@ -561,24 +599,22 @@ int my_pthread_join(my_pthread_t thread, void **value_ptr) {
 	make_scheduler();
 	printf("Joining\n");
 	if (thread == -1) {
-		printf("The thread has already joined and has been terminated");
+		printf("The thread has already joined and has been terminated\n");
 		return -1;
 	}
 
 	if (scheduler.running_thread->state != RUNNING) {
-		printf("The thread %d is not running", scheduler.running_thread->tid);
+		printf("The thread %d is not running\n", scheduler.running_thread->tid);
 		return -1;
 	}
 
 	if (scheduler.running_thread->tid == thread) {
-		printf("Thread %d cannot join itself", thread);
+		printf("Thread %d cannot join itself\n", thread);
 		return -1;
 	}
 
-	printf("Thread %d joining thread %d", scheduler.running_thread->tid,
+	printf("Thread %d joining thread %d\n", scheduler.running_thread->tid,
 			thread);
-
-
 
 	tcb* t;
 	if( (t = get_tcb(thread)) == NULL){
@@ -597,9 +633,8 @@ int my_pthread_join(my_pthread_t thread, void **value_ptr) {
 	}
 
 	if (value_ptr != NULL) {
-		value_ptr = t->return_val;
+		*value_ptr = t->return_val;
 	}
-
 	return 0;
 }
 
@@ -682,13 +717,14 @@ int my_pthread_mutex_lock(my_pthread_mutex_t *mutex) {
 	if (mutex->lock == 1) {
 
 		if (scheduler.running_thread->tid == mutex->tid) {
-			printf("Lock is already held by thread %d", mutex->tid);
+			printf("Lock is already held by the current thread %d", mutex->tid);
 			return -1;
 		}
 
-		if (wait_queue == NULL) {
+		if (wait_queue->start == NULL) {
 
 			scheduler.running_thread->state = WAITING;
+			delete_from_queue(scheduler.priority_queue[0], scheduler.running_thread);
 			enqueue(wait_queue, scheduler.running_thread);
 
 			pthread_yield();
@@ -701,9 +737,10 @@ int my_pthread_mutex_lock(my_pthread_mutex_t *mutex) {
 	}
 
 	if (mutex->lock == 0) {
-		if (mutex->m_wait_queue == NULL) {
+		if (mutex->m_wait_queue->start == NULL) {
 			mutex->lock = 1;
 			mutex->tid = scheduler.running_thread->tid;
+			SYS_MODE = 0;
 			reset_timer();
 			return 0;
 		} else {
@@ -714,11 +751,12 @@ int my_pthread_mutex_lock(my_pthread_mutex_t *mutex) {
 
 			mutex->tid = scheduler.running_thread->tid;
 			scheduler.running_thread->state = RUNNING;
+			SYS_MODE = 0;
 			return 0;
 		}
 
 	}
-
+	SYS_MODE = 0;
 	return -1;
 }
 
@@ -753,11 +791,15 @@ int my_pthread_mutex_unlock(my_pthread_mutex_t *mutex) {
 				my_pthread_yield();
 				return 0;
 			} else {
-				mutex->m_wait_queue->start->state = READY;
-				mutex->m_wait_queue->start = mutex->m_wait_queue->start->next;
-				if(mutex->m_wait_queue->start == NULL)
-					mutex->m_wait_queue->end = NULL;
-				mutex->tid = -1;
+				if(mutex->m_wait_queue != NULL && mutex->m_wait_queue->start){
+					tcb *new_mutex_owner = mutex->m_wait_queue->start;
+					new_mutex_owner->state = READY;
+					enqueue(scheduler.priority_queue[0], new_mutex_owner);
+					mutex->tid = new_mutex_owner->tid;
+					mutex->m_wait_queue->start = mutex->m_wait_queue->start->next;
+					if(mutex->m_wait_queue->start == NULL)
+						mutex->m_wait_queue->end = NULL;
+				}
 				my_pthread_yield();
 				return 0;
 			}
@@ -812,9 +854,12 @@ void * dummyFunction(tcb *thread) {
 	int i = 0, j = 0, k = 0, l = 0;
 	for (i = 0; i < 100; i++) {
 		printf("Thread %d: %i\n", curr_threadID, i);
-//		if(i==21 && thread->tid == 3){
-//			pthread_join(thread->next, NULL);
-//		}
+
+		if(i==21 && thread->tid == 2){
+			my_pthread_mutex_lock(temp_mutex);
+		}else if(i==31 && thread->tid == 3){
+			my_pthread_mutex_lock(temp_mutex);
+		}
 		//scheduler.priority_queue[0]->end = end;
 		for (j = 0; j < 50000; j++)
 			k++;
@@ -848,18 +893,26 @@ int main(int argc, char **argv) {
 	pthread_create(&t1, NULL, (void *) dummyFunction, &t1);
 	pthread_create(&t2, NULL, (void *) dummyFunction, &t2);
 	//pthread_create(&t3, NULL, (void *) dummyFunction, &t3);
+	temp_mutex = (my_pthread_mutex_t *) malloc(sizeof(my_pthread_mutex_t));
+	my_pthread_mutex_init(temp_mutex, NULL);
 
-	void ** op_val;
+	int xxx =  10;
+	void * ptr = &xxx;
+	void ** op_val = &ptr;
+
 	int i = 0, j = 0, k = 0, l = 0;
-	for (i = 0; i < 100; i++) {
+	for (i = 0; i < 10; i++) {
 		printf("Main: %d\n", i);
-		if (i == 21){
-			pthread_join(t1, op_val);
-		}
+//		if (i == 51){
+//			pthread_join(t1, op_val);
+//		}
 
 		for (j = 0; j < 50000; j++)
 			k++;
 	}
+
+	pthread_join(t1, op_val);
+	pthread_join(t2, op_val);
 
 	printf("Done\n");
 
