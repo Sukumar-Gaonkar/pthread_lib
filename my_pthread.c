@@ -73,6 +73,9 @@ tcb* dequeue(tcb_list *queue) {
 		queue->end = NULL;
 	} else {
 		queue->start = queue->start->next;
+		if(queue->start == NULL){
+			queue->end = NULL;
+		}
 		curr_tcb->next = NULL;
 	}
 
@@ -90,6 +93,7 @@ void delete_from_queue(tcb_list *queue, tcb *todel_tcb){
 		if(queue->start == NULL)
 			queue->end = NULL;
 		todel_tcb->next = NULL;
+		return;
 	}
 
 	tcb *curr_tcb = queue->start;
@@ -107,11 +111,11 @@ void delete_from_queue(tcb_list *queue, tcb *todel_tcb){
 		return;
 	}else{
 		trail_pointer->next = curr_tcb->next;
+		//If last tcb in the list was delete, update the end pointer
+		if(curr_tcb->next == NULL)
+			queue->end = trail_pointer;
 		curr_tcb->next = NULL;
 	}
-
-
-
 }
 
 
@@ -379,10 +383,10 @@ void schd_maintenence() {
 				//Here we restrict important threads from falling below IMP_T_DEMOTION_THRESH priority queue level
 				//Threads on which other threads are waiting and/or threads holding mutexes are important threads.
 
-				if (curr_tcb
-						== scheduler.priority_queue[priority_level]->start) {
-					scheduler.priority_queue[priority_level]->start =
-							curr_tcb->next;
+				if (curr_tcb == scheduler.priority_queue[priority_level]->start) {
+					scheduler.priority_queue[priority_level]->start = curr_tcb->next;
+					if(scheduler.priority_queue[priority_level]->start == NULL)
+						scheduler.priority_queue[priority_level]->end = NULL;
 				} else {
 					trailing_pointer->next = curr_tcb->next;
 				}
@@ -394,14 +398,12 @@ void schd_maintenence() {
 				curr_tcb = curr_tcb->next;
 
 				enqueue(scheduler.priority_queue[priority_level + 1], to_add);
-			} else if (curr_tcb->priority
-					< priority_level_threshold[priority_level - 1]
-					&& priority_level != 0) {
+			} else if (curr_tcb->priority < priority_level_threshold[priority_level - 1] && priority_level != 0) {
 				//Promotion
-				if (curr_tcb
-						== scheduler.priority_queue[priority_level]->start) {
-					scheduler.priority_queue[priority_level]->start =
-							curr_tcb->next;
+				if (curr_tcb == scheduler.priority_queue[priority_level]->start) {
+					scheduler.priority_queue[priority_level]->start = curr_tcb->next;
+					if(scheduler.priority_queue[priority_level]->start == NULL)
+						scheduler.priority_queue[priority_level]->end = NULL;
 				} else {
 					trailing_pointer->next = curr_tcb->next;
 				}
@@ -753,6 +755,8 @@ int my_pthread_mutex_unlock(my_pthread_mutex_t *mutex) {
 			} else {
 				mutex->m_wait_queue->start->state = READY;
 				mutex->m_wait_queue->start = mutex->m_wait_queue->start->next;
+				if(mutex->m_wait_queue->start == NULL)
+					mutex->m_wait_queue->end = NULL;
 				mutex->tid = -1;
 				my_pthread_yield();
 				return 0;
@@ -808,6 +812,9 @@ void * dummyFunction(tcb *thread) {
 	int i = 0, j = 0, k = 0, l = 0;
 	for (i = 0; i < 100; i++) {
 		printf("Thread %d: %i\n", curr_threadID, i);
+//		if(i==21 && thread->tid == 3){
+//			pthread_join(thread->next, NULL);
+//		}
 		//scheduler.priority_queue[0]->end = end;
 		for (j = 0; j < 50000; j++)
 			k++;
