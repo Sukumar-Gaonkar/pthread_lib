@@ -366,18 +366,14 @@ void schd_maintenence() {
 					//				else
 					//					curr_tcb->priority = curr_tcb->priority + 1;
 
-				} else if (curr_tcb->state
-						== WAITING&& curr_tcb->priority != MAX_PRIORITY) {
+				} else if (curr_tcb->state == WAITING&& curr_tcb->priority != MAX_PRIORITY) {
 					curr_tcb->priority = curr_tcb->priority + 1;
 				}
 			} else {
 				curr_tcb->recently_demoted = 0;
 			}
-			if (curr_tcb->priority > priority_level_threshold[priority_level]
-					&& priority_level < LEVELS - 1
-					&& (priority_level <= IMP_T_DEMOTION_THRESH
-							|| (curr_tcb->tcb_wait_queue == NULL
-									&& !holds_mutex(curr_tcb)))) {
+
+			if (curr_tcb->priority > priority_level_threshold[priority_level] && priority_level < LEVELS - 1 && (priority_level <= IMP_T_DEMOTION_THRESH || (curr_tcb->tcb_wait_queue == NULL && !holds_mutex(curr_tcb)))) {
 				// Demotion
 				// The second part of the 'if condition' is to avoid priority inversion
 				//Here we restrict important threads from falling below IMP_T_DEMOTION_THRESH priority queue level
@@ -400,9 +396,7 @@ void schd_maintenence() {
 				curr_tcb = curr_tcb->next;
 
 				enqueue(scheduler.priority_queue[priority_level + 1], to_add);
-			} else if (curr_tcb->priority
-					< priority_level_threshold[priority_level - 1]
-					&& priority_level != 0) {
+			} else if (curr_tcb->priority < priority_level_threshold[priority_level - 1] && priority_level != 0) {
 				//Promotion
 				if (curr_tcb
 						== scheduler.priority_queue[priority_level]->start) {
@@ -423,7 +417,7 @@ void schd_maintenence() {
 			}
 
 			if (curr_tcb != scheduler.priority_queue[priority_level]->start)
-				trailing_pointer = trailing_pointer->next;
+				trailing_pointer = curr_tcb;
 
 		}
 	}
@@ -727,7 +721,7 @@ int my_pthread_mutex_lock(my_pthread_mutex_t *mutex) {
 			return -1;
 		}
 
-		if (wait_queue->start == NULL) {
+		if (wait_queue != NULL) {
 
 			scheduler.running_thread->state = WAITING;
 			delete_from_queue(scheduler.priority_queue[0],
@@ -738,7 +732,10 @@ int my_pthread_mutex_lock(my_pthread_mutex_t *mutex) {
 
 			mutex->tid = scheduler.running_thread->tid;
 			scheduler.running_thread->state = RUNNING;
+			SYS_MODE = 0;
 			return 0;
+		}else{
+			printf("Wait queue itself is null\n");
 		}
 
 	}
@@ -792,7 +789,7 @@ int my_pthread_mutex_unlock(my_pthread_mutex_t *mutex) {
 		}
 
 		if (scheduler.running_thread->tid == mutex->tid) {
-			if (wait_queue == NULL) {
+			if (wait_queue->start == NULL) {	//Changed recently
 				mutex->lock = 0;
 				mutex->tid = -1;
 				my_pthread_yield();

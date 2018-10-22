@@ -21,6 +21,7 @@
 #include <assert.h>
 #include <signal.h>
 #include <errno.h>
+#include <pthread.h>
 
 #define USE_MY_PTHREAD 1
 
